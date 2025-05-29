@@ -14,11 +14,12 @@ contract ProofOfReserve {
     address public owner;
     mapping(address => mapping(address => bool)) public isReserveWallet;    // token => wallet => isActive
     mapping(address => mapping(address => uint256)) public lastVerifiedTimestamp;  // token => wallet => timestamp
+    mapping(address => mapping(address => uint256)) public validUntilTimestamp;   // token => wallet => validUntil
 
     // Events
     event ReserveConfigured(address indexed token, address indexed wallet);
     event ReserveDeactivated(address indexed token, address indexed wallet);
-    event ProofVerified(address indexed token, address indexed wallet, uint256 timestamp, bool success);
+    event ProofVerified(address indexed token, address indexed wallet, uint256 validUntil, bool success);
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
 
     // Modifiers
@@ -51,27 +52,17 @@ contract ProofOfReserve {
     }
 
     /**
-     * @notice Configure a new reserve wallet
+     * @notice Configure a new reserve wallet (one-time setup)
      * @param token The ERC20 token address
-     * @param wallet The wallet address holding the reserves and authorized to sign proofs
-     * @param signature The wallet's signature to prove ownership
+     * @param wallet The wallet address holding the reserves
      */
     function configureReserve(
         address token,
-        address wallet,
-        bytes memory signature
+        address wallet
     ) external onlyOwner {
         require(token != address(0), "Invalid token address");
         require(wallet != address(0), "Invalid wallet address");
         
-        // Create message for signing
-        bytes32 messageHash = getMessageHash(token, wallet);
-        bytes32 ethSignedMessageHash = getEthSignedMessageHash(messageHash);
-        
-        // Verify wallet ownership
-        address signer = recoverSigner(ethSignedMessageHash, signature);
-        require(signer == wallet, "Invalid wallet signature");
-
         isReserveWallet[token][wallet] = true;
         emit ReserveConfigured(token, wallet);
     }
@@ -98,25 +89,25 @@ contract ProofOfReserve {
     }
 
     /**
-     * @notice Submit and verify a new proof of reserve
+     * @notice Submit and verify a new proof of reserve with validity period
      * @param token The ERC20 token address
      * @param wallet The reserve wallet address
      * @param signature The signature proving the wallet owns the reserves
+     * @param validUntil The timestamp until which this proof is valid
      * @return success Whether the proof was valid
      */
     function verifyProof(
         address token,
         address wallet,
-        bytes memory signature
+        bytes memory signature,
+        uint256 validUntil
     ) external returns (bool success) {
         require(isReserveWallet[token][wallet], "Reserve not active");
+        require(validUntil > block.timestamp, "Validity period must be in future");
+        require(validUntil <= block.timestamp + 30 days, "Validity period too long");
         
         // Create and verify signature of the ownership claim
-        bytes32 messageHash = keccak256(abi.encodePacked(
-            token,
-            wallet,
-            address(this)  // Include contract address to prevent cross-chain replay
-        ));
+        bytes32 messageHash = getMessageHash(token, wallet, validUntil);
         bytes32 ethSignedMessageHash = getEthSignedMessageHash(messageHash);
         address signer = recoverSigner(ethSignedMessageHash, signature);
         
@@ -125,34 +116,42 @@ contract ProofOfReserve {
         
         if (success) {
             lastVerifiedTimestamp[token][wallet] = block.timestamp;
+            validUntilTimestamp[token][wallet] = validUntil;
         }
         
-        emit ProofVerified(token, wallet, block.timestamp, success);
+        emit ProofVerified(token, wallet, validUntil, success);
         return success;
     }
 
     /**
-     * @notice Get the last verification timestamp for a reserve
+     * @notice Check if a proof is currently valid
      * @param token The ERC20 token address
      * @param wallet The reserve wallet address
-     * @return timestamp The timestamp of the last verification
+     * @return isValid Whether the proof is currently valid
+     * @return validUntil When the current proof expires (0 if no valid proof)
      */
-    function getLastVerified(
+    function isProofValid(
         address token,
         address wallet
-    ) external view returns (uint256 timestamp) {
+    ) external view returns (bool isValid, uint256 validUntil) {
         require(isReserveWallet[token][wallet], "Reserve not active");
-        return lastVerifiedTimestamp[token][wallet];
+        validUntil = validUntilTimestamp[token][wallet];
+        isValid = validUntil > block.timestamp;
+        return (isValid, validUntil);
     }
 
     /**
-     * @notice Creates a message hash from token and wallet
+     * @notice Creates a message hash from token, wallet and validity period
+     * @param token The token address
+     * @param wallet The wallet address
+     * @param validUntil The timestamp until which this proof is valid
      */
     function getMessageHash(
         address token,
-        address wallet
-    ) public view returns (bytes32) {
-        return keccak256(abi.encodePacked(token, wallet, address(this)));
+        address wallet,
+        uint256 validUntil
+    ) public pure returns (bytes32) {
+        return keccak256(abi.encodePacked(token, wallet, validUntil));
     }
 
     /**

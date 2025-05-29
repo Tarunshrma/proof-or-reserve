@@ -25,40 +25,47 @@ contract ProofOfReserve {
     event ProofSubmitted(address indexed token, address indexed wallet, uint256 balance, uint256 timestamp);
 
     // EIP-712 type hashes
-    bytes32 public constant DOMAIN_TYPE_HASH = keccak256(
+    bytes32 private constant EIP712_DOMAIN_TYPEHASH = keccak256(
         "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
     );
 
-    bytes32 public constant PROOF_TYPE_HASH = keccak256(
+    bytes32 private constant PROOF_TYPEHASH = keccak256(
         "Proof(address token,address wallet,uint256 balance,uint256 timestamp)"
     );
 
-    // EIP-712 domain separator
-    bytes32 public immutable DOMAIN_SEPARATOR;
+    bytes32 private immutable DOMAIN_SEPARATOR;
 
     constructor() {
-        DOMAIN_SEPARATOR = keccak256(
-            abi.encode(
-                DOMAIN_TYPE_HASH,
-                keccak256("Proof of Reserve"),  // name
-                keccak256("1"),                 // version
-                block.chainid,                  // chainId
-                address(this)                   // verifyingContract
-            )
-        );
+        DOMAIN_SEPARATOR = keccak256(abi.encode(
+            EIP712_DOMAIN_TYPEHASH,
+            keccak256(bytes("Proof of Reserve")),
+            keccak256(bytes("1")),
+            block.chainid,
+            address(this)
+        ));
     }
 
     /**
      * @notice Configure a new reserve wallet
      * @param token The ERC20 token address
      * @param wallet The wallet address holding the reserves and authorized to sign proofs
+     * @param signature The wallet's signature to prove ownership
      */
     function configureReserve(
         address token,
-        address wallet
+        address wallet,
+        bytes memory signature
     ) external {
         require(token != address(0), "Invalid token address");
         require(wallet != address(0), "Invalid wallet address");
+        
+        // Create message for signing
+        bytes32 messageHash = getMessageHash(token, wallet);
+        bytes32 ethSignedMessageHash = getEthSignedMessageHash(messageHash);
+        
+        // Verify wallet ownership
+        address signer = recoverSigner(ethSignedMessageHash, signature);
+        require(signer == wallet, "Invalid wallet signature");
 
         isReserveWallet[token][wallet] = true;
         emit ReserveConfigured(token, wallet);
@@ -86,55 +93,64 @@ contract ProofOfReserve {
     }
 
     /**
-     * @notice Hash the proof data according to EIP-712
+     * @notice Submit a new proof of reserve
      * @param token The ERC20 token address
      * @param wallet The reserve wallet address
-     * @param balance The balance being proved
-     * @param timestamp The timestamp of the proof
      */
-    function hashProof(
-        address token,
-        address wallet,
-        uint256 balance,
-        uint256 timestamp
-    ) public view returns (bytes32) {
-        bytes32 structHash = keccak256(
-            abi.encode(
-                PROOF_TYPE_HASH,
-                token,
-                wallet,
-                balance,
-                timestamp
-            )
-        );
-        return keccak256(abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR, structHash));
+    function submitProof(address token, address wallet) external {
+        require(isReserveWallet[token][wallet], "Reserve not active");
+        uint256 balance = IERC20(token).balanceOf(wallet);
+        emit ProofSubmitted(token, wallet, balance, block.timestamp);
     }
 
     /**
-     * @notice Verify a proof of reserve
-     * @param token The ERC20 token address
-     * @param wallet The reserve wallet address
-     * @param balance The balance being proved
-     * @param timestamp The timestamp of the proof
-     * @param v The recovery byte of the signature
-     * @param r The first 32 bytes of the signature
-     * @param s The second 32 bytes of the signature
+     * @notice Creates a message hash from token and wallet
      */
-    function verifyProof(
+    function getMessageHash(
         address token,
-        address wallet,
-        uint256 balance,
-        uint256 timestamp,
-        uint8 v,
-        bytes32 r,
-        bytes32 s
-    ) external view returns (bool) {
-        require(isReserveWallet[token][wallet], "Reserve not active");
+        address wallet
+    ) public view returns (bytes32) {
+        return keccak256(abi.encodePacked(token, wallet, address(this)));
+    }
 
-        bytes32 digest = hashProof(token, wallet, balance, timestamp);
-        address signer = ecrecover(digest, v, r, s);
-        
-        return signer == wallet;  // Wallet is both the holder and signer
+    /**
+     * @notice Creates Ethereum signed message hash
+     */
+    function getEthSignedMessageHash(
+        bytes32 messageHash
+    ) public pure returns (bytes32) {
+        return keccak256(abi.encodePacked(
+            "\x19Ethereum Signed Message:\n32",
+            messageHash
+        ));
+    }
+
+    /**
+     * @notice Split signature into r, s, v components and recover signer
+     */
+    function recoverSigner(
+        bytes32 ethSignedMessageHash,
+        bytes memory signature
+    ) public pure returns (address) {
+        require(signature.length == 65, "Invalid signature length");
+
+        bytes32 r;
+        bytes32 s;
+        uint8 v;
+
+        assembly {
+            r := mload(add(signature, 32))
+            s := mload(add(signature, 64))
+            v := byte(0, mload(add(signature, 96)))
+        }
+
+        if (v < 27) {
+            v += 27;
+        }
+
+        require(v == 27 || v == 28, "Invalid signature 'v' value");
+
+        return ecrecover(ethSignedMessageHash, v, r, s);
     }
 
     function getDomainSeparator() external view returns (bytes32) {

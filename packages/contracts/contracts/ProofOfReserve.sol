@@ -10,39 +10,43 @@ interface IERC20 {
  * @notice A minimal contract to manage and verify proof of reserves for tokens and wallets
  */
 contract ProofOfReserve {
-    // Structs
-    struct ReserveConfig {
-        bool isActive;          // Whether this reserve configuration is active
-        address wallet;         // The wallet holding the reserves and signing proofs
-    }
-
-    // Mapping of token to reserve wallets
+    // State variables
+    address public owner;
     mapping(address => mapping(address => bool)) public isReserveWallet;    // token => wallet => isActive
 
     // Events
     event ReserveConfigured(address indexed token, address indexed wallet);
     event ReserveDeactivated(address indexed token, address indexed wallet);
     event ProofSubmitted(address indexed token, address indexed wallet, uint256 balance, uint256 timestamp);
+    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
 
-    // EIP-712 type hashes
-    bytes32 private constant EIP712_DOMAIN_TYPEHASH = keccak256(
-        "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
-    );
+    // Modifiers
+    modifier onlyOwner() {
+        require(msg.sender == owner, "Caller is not the owner");
+        _;
+    }
 
-    bytes32 private constant PROOF_TYPEHASH = keccak256(
-        "Proof(address token,address wallet,uint256 balance,uint256 timestamp)"
-    );
+    modifier onlyOwnerOrWallet(address wallet) {
+        require(msg.sender == owner || msg.sender == wallet, "Caller is not authorized");
+        _;
+    }
 
-    bytes32 private immutable DOMAIN_SEPARATOR;
-
+    /**
+     * @notice Contract constructor
+     */
     constructor() {
-        DOMAIN_SEPARATOR = keccak256(abi.encode(
-            EIP712_DOMAIN_TYPEHASH,
-            keccak256(bytes("Proof of Reserve")),
-            keccak256(bytes("1")),
-            block.chainid,
-            address(this)
-        ));
+        owner = msg.sender;
+        emit OwnershipTransferred(address(0), msg.sender);
+    }
+
+    /**
+     * @notice Transfer contract ownership
+     * @param newOwner The address of the new owner
+     */
+    function transferOwnership(address newOwner) external onlyOwner {
+        require(newOwner != address(0), "New owner is the zero address");
+        emit OwnershipTransferred(owner, newOwner);
+        owner = newOwner;
     }
 
     /**
@@ -55,7 +59,7 @@ contract ProofOfReserve {
         address token,
         address wallet,
         bytes memory signature
-    ) external {
+    ) external onlyOwner {
         require(token != address(0), "Invalid token address");
         require(wallet != address(0), "Invalid wallet address");
         
@@ -76,7 +80,7 @@ contract ProofOfReserve {
      * @param token The ERC20 token address
      * @param wallet The wallet address to deactivate
      */
-    function deactivateReserve(address token, address wallet) external {
+    function deactivateReserve(address token, address wallet) external onlyOwnerOrWallet(wallet) {
         require(isReserveWallet[token][wallet], "Reserve not active");
         isReserveWallet[token][wallet] = false;
         emit ReserveDeactivated(token, wallet);
@@ -151,9 +155,5 @@ contract ProofOfReserve {
         require(v == 27 || v == 28, "Invalid signature 'v' value");
 
         return ecrecover(ethSignedMessageHash, v, r, s);
-    }
-
-    function getDomainSeparator() external view returns (bytes32) {
-        return DOMAIN_SEPARATOR;
     }
 }

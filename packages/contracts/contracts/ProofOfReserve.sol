@@ -13,11 +13,12 @@ contract ProofOfReserve {
     // State variables
     address public owner;
     mapping(address => mapping(address => bool)) public isReserveWallet;    // token => wallet => isActive
+    mapping(address => mapping(address => uint256)) public lastVerifiedTimestamp;  // token => wallet => timestamp
 
     // Events
     event ReserveConfigured(address indexed token, address indexed wallet);
     event ReserveDeactivated(address indexed token, address indexed wallet);
-    event ProofSubmitted(address indexed token, address indexed wallet, uint256 balance, uint256 timestamp);
+    event ProofVerified(address indexed token, address indexed wallet, uint256 timestamp, bool success);
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
 
     // Modifiers
@@ -97,14 +98,51 @@ contract ProofOfReserve {
     }
 
     /**
-     * @notice Submit a new proof of reserve
+     * @notice Submit and verify a new proof of reserve
      * @param token The ERC20 token address
      * @param wallet The reserve wallet address
+     * @param signature The signature proving the wallet owns the reserves
+     * @return success Whether the proof was valid
      */
-    function submitProof(address token, address wallet) external {
+    function verifyProof(
+        address token,
+        address wallet,
+        bytes memory signature
+    ) external returns (bool success) {
         require(isReserveWallet[token][wallet], "Reserve not active");
-        uint256 balance = IERC20(token).balanceOf(wallet);
-        emit ProofSubmitted(token, wallet, balance, block.timestamp);
+        
+        // Create and verify signature of the ownership claim
+        bytes32 messageHash = keccak256(abi.encodePacked(
+            token,
+            wallet,
+            address(this)  // Include contract address to prevent cross-chain replay
+        ));
+        bytes32 ethSignedMessageHash = getEthSignedMessageHash(messageHash);
+        address signer = recoverSigner(ethSignedMessageHash, signature);
+        
+        // Verify the signature matches the wallet
+        success = (signer == wallet);
+        
+        if (success) {
+            lastVerifiedTimestamp[token][wallet] = block.timestamp;
+        }
+        
+        emit ProofVerified(token, wallet, block.timestamp, success);
+        return success;
+    }
+
+    /**
+     * @notice Get the last verification timestamp for a reserve
+     * @param token The ERC20 token address
+     * @param wallet The reserve wallet address
+     * @return timestamp The timestamp of the last verification
+     */
+    function getLastVerified(
+        address token,
+        address wallet
+    ) external view returns (uint256 timestamp) {
+        require(isReserveWallet[token][wallet], "Reserve not active");
+        return lastVerifiedTimestamp[token][wallet];
     }
 
     /**

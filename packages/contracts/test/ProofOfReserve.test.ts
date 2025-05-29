@@ -1,13 +1,14 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
-import { Contract } from "ethers";
+import { Contract, Signer } from "ethers";
+import { ProofOfReserve, TestToken } from "../typechain-types";
 
 describe("ProofOfReserve", function () {
-  let testToken: Contract;
-  let proofOfReserve: Contract;
-  let owner: any;
-  let reserveWallet: any;
-  let otherAccount: any;
+  let testToken: TestToken;
+  let proofOfReserve: ProofOfReserve;
+  let owner: Signer;
+  let reserveWallet: Signer;
+  let otherAccount: Signer;
   let reserveWalletAddress: string;
 
   beforeEach(async function () {
@@ -17,12 +18,12 @@ describe("ProofOfReserve", function () {
 
     // Deploy TestToken
     const TestToken = await ethers.getContractFactory("TestToken");
-    testToken = await TestToken.deploy();
+    testToken = await TestToken.deploy() as TestToken;
     await testToken.waitForDeployment();
 
     // Deploy ProofOfReserve
     const ProofOfReserve = await ethers.getContractFactory("ProofOfReserve");
-    proofOfReserve = await ProofOfReserve.deploy();
+    proofOfReserve = await ProofOfReserve.deploy() as ProofOfReserve;
     await proofOfReserve.waitForDeployment();
 
     // Transfer some tokens to reserve wallet
@@ -44,7 +45,7 @@ describe("ProofOfReserve", function () {
     it("Should prevent non-owners from transferring ownership", async function () {
       const newOwnerAddress = await otherAccount.getAddress();
       await expect(
-        proofOfReserve.connect(otherAccount).transferOwnership(newOwnerAddress)
+        proofOfReserve.connect(otherAccount as any).transferOwnership(newOwnerAddress)
       ).to.be.revertedWith("Caller is not the owner");
     });
   });
@@ -72,7 +73,7 @@ describe("ProofOfReserve", function () {
       const signature = await reserveWallet.signMessage(ethers.getBytes(messageHash));
       
       await expect(
-        proofOfReserve.connect(otherAccount).configureReserve(tokenAddress, reserveWalletAddress, signature)
+        proofOfReserve.connect(otherAccount as any).configureReserve(tokenAddress, reserveWalletAddress, signature)
       ).to.be.revertedWith("Caller is not the owner");
     });
 
@@ -103,27 +104,68 @@ describe("ProofOfReserve", function () {
 
     it("Should allow wallet to deactivate its own reserve", async function () {
       const tokenAddress = await testToken.getAddress();
-      await proofOfReserve.connect(reserveWallet).deactivateReserve(tokenAddress, reserveWalletAddress);
+      await proofOfReserve.connect(reserveWallet as any).deactivateReserve(tokenAddress, reserveWalletAddress);
       expect(await proofOfReserve.isReserveWallet(tokenAddress, reserveWalletAddress)).to.be.false;
     });
 
     it("Should prevent unauthorized accounts from deactivating reserves", async function () {
       const tokenAddress = await testToken.getAddress();
       await expect(
-        proofOfReserve.connect(otherAccount).deactivateReserve(tokenAddress, reserveWalletAddress)
+        proofOfReserve.connect(otherAccount as any).deactivateReserve(tokenAddress, reserveWalletAddress)
       ).to.be.revertedWith("Caller is not authorized");
     });
 
-    it("Should submit and verify proof of reserve", async function () {
+    it("Should verify proof of reserve with valid signature", async function () {
       const tokenAddress = await testToken.getAddress();
-      const tx = await proofOfReserve.submitProof(tokenAddress, reserveWalletAddress);
+      
+      // Create verification message
+      const messageHash = ethers.keccak256(
+        ethers.solidityPacked(
+          ["address", "address", "address"],
+          [tokenAddress, reserveWalletAddress, await proofOfReserve.getAddress()]
+        )
+      );
+      
+      // Sign the message
+      const signature = await reserveWallet.signMessage(ethers.getBytes(messageHash));
+      
+      // Verify the proof
+      const tx = await proofOfReserve.verifyProof(tokenAddress, reserveWalletAddress, signature);
+      const receipt = await tx.wait();
+
+      // Check event and verification status
+      const event = receipt?.logs[0];
+      expect(event?.eventName).to.equal("ProofVerified");
+      expect(event?.args[0]).to.equal(tokenAddress);
+      expect(event?.args[1]).to.equal(reserveWalletAddress);
+      expect(event?.args[3]).to.be.true; // success
+
+      // Check last verified timestamp
+      const lastVerified = await proofOfReserve.getLastVerified(tokenAddress, reserveWalletAddress);
+      expect(lastVerified).to.be.gt(0);
+    });
+
+    it("Should reject proof verification with invalid signature", async function () {
+      const tokenAddress = await testToken.getAddress();
+      
+      // Create verification message
+      const messageHash = ethers.keccak256(
+        ethers.solidityPacked(
+          ["address", "address", "address"],
+          [tokenAddress, reserveWalletAddress, await proofOfReserve.getAddress()]
+        )
+      );
+      
+      // Sign with wrong wallet
+      const signature = await otherAccount.signMessage(ethers.getBytes(messageHash));
+      
+      // Verify should return false
+      const tx = await proofOfReserve.verifyProof(tokenAddress, reserveWalletAddress, signature);
       const receipt = await tx.wait();
 
       const event = receipt?.logs[0];
-      expect(event?.eventName).to.equal("ProofSubmitted");
-      expect(event?.args[0]).to.equal(tokenAddress);
-      expect(event?.args[1]).to.equal(reserveWalletAddress);
-      expect(event?.args[2]).to.equal(ethers.parseEther("1000")); // balance
+      expect(event?.eventName).to.equal("ProofVerified");
+      expect(event?.args[3]).to.be.false; // success should be false
     });
 
     it("Should prevent operations on deactivated reserves", async function () {
@@ -137,9 +179,17 @@ describe("ProofOfReserve", function () {
         proofOfReserve.getReserveBalance(tokenAddress, reserveWalletAddress)
       ).to.be.revertedWith("Reserve not active");
       
-      // Try to submit proof
+      // Try to verify proof
+      const messageHash = ethers.keccak256(
+        ethers.solidityPacked(
+          ["address", "address", "address"],
+          [tokenAddress, reserveWalletAddress, await proofOfReserve.getAddress()]
+        )
+      );
+      const signature = await reserveWallet.signMessage(ethers.getBytes(messageHash));
+      
       await expect(
-        proofOfReserve.submitProof(tokenAddress, reserveWalletAddress)
+        proofOfReserve.verifyProof(tokenAddress, reserveWalletAddress, signature)
       ).to.be.revertedWith("Reserve not active");
     });
   });

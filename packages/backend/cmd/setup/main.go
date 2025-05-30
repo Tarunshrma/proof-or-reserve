@@ -18,7 +18,25 @@ import (
 	"github.com/joho/godotenv"
 )
 
-const contractABI = `[{"inputs":[],"stateMutability":"nonpayable","type":"constructor"},{"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"token","type":"address"},{"indexed":true,"internalType":"address","name":"wallet","type":"address"},{"indexed":false,"internalType":"uint256","name":"balance","type":"uint256"}],"name":"ReserveConfigured","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"token","type":"address"},{"indexed":true,"internalType":"address","name":"wallet","type":"address"}],"name":"ReserveDeactivated","type":"event"},{"inputs":[{"internalType":"address","name":"token","type":"address"},{"internalType":"address","name":"wallet","type":"address"},{"internalType":"uint256","name":"balance","type":"uint256"}],"name":"configureReserve","outputs":[],"stateMutability":"nonpayable","type":"function"}]`
+const contractABI = `[
+    {"inputs":[],"stateMutability":"nonpayable","type":"constructor"},
+    {"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"previousOwner","type":"address"},{"indexed":true,"internalType":"address","name":"newOwner","type":"address"}],"name":"OwnershipTransferred","type":"event"},
+    {"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"token","type":"address"},{"indexed":true,"internalType":"address","name":"wallet","type":"address"},{"indexed":false,"internalType":"uint256","name":"validUntil","type":"uint256"},{"indexed":false,"internalType":"bool","name":"success","type":"bool"}],"name":"ProofVerified","type":"event"},
+    {"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"token","type":"address"},{"indexed":true,"internalType":"address","name":"wallet","type":"address"}],"name":"ReserveConfigured","type":"event"},
+    {"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"token","type":"address"},{"indexed":true,"internalType":"address","name":"wallet","type":"address"}],"name":"ReserveDeactivated","type":"event"},
+    {"inputs":[{"internalType":"address","name":"token","type":"address"},{"internalType":"address","name":"wallet","type":"address"}],"name":"configureReserve","outputs":[],"stateMutability":"nonpayable","type":"function"},
+    {"inputs":[{"internalType":"address","name":"token","type":"address"},{"internalType":"address","name":"wallet","type":"address"}],"name":"deactivateReserve","outputs":[],"stateMutability":"nonpayable","type":"function"},
+    {"inputs":[{"internalType":"bytes32","name":"messageHash","type":"bytes32"}],"name":"getEthSignedMessageHash","outputs":[{"internalType":"bytes32","name":"","type":"bytes32"}],"stateMutability":"pure","type":"function"},
+    {"inputs":[{"internalType":"address","name":"token","type":"address"},{"internalType":"address","name":"wallet","type":"address"}],"name":"getReserveBalance","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
+    {"inputs":[{"internalType":"address","name":"token","type":"address"},{"internalType":"address","name":"wallet","type":"address"}],"name":"isProofValid","outputs":[{"internalType":"bool","name":"isValid","type":"bool"},{"internalType":"uint256","name":"validUntil","type":"uint256"}],"stateMutability":"view","type":"function"},
+    {"inputs":[{"internalType":"address","name":"","type":"address"},{"internalType":"address","name":"","type":"address"}],"name":"isReserveWallet","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"view","type":"function"},
+    {"inputs":[{"internalType":"address","name":"token","type":"address"},{"internalType":"address","name":"wallet","type":"address"}],"name":"lastVerifiedTimestamp","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
+    {"inputs":[],"name":"owner","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"view","type":"function"},
+    {"inputs":[{"internalType":"bytes32","name":"ethSignedMessageHash","type":"bytes32"},{"internalType":"bytes","name":"signature","type":"bytes"}],"name":"recoverSigner","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"pure","type":"function"},
+    {"inputs":[{"internalType":"address","name":"newOwner","type":"address"}],"name":"transferOwnership","outputs":[],"stateMutability":"nonpayable","type":"function"},
+    {"inputs":[{"internalType":"address","name":"token","type":"address"},{"internalType":"address","name":"wallet","type":"address"}],"name":"validUntilTimestamp","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
+    {"inputs":[{"internalType":"address","name":"token","type":"address"},{"internalType":"address","name":"wallet","type":"address"},{"internalType":"bytes","name":"signature","type":"bytes"},{"internalType":"uint256","name":"validUntil","type":"uint256"}],"name":"verifyProof","outputs":[{"internalType":"bool","name":"success","type":"bool"}],"stateMutability":"nonpayable","type":"function"}
+]`
 
 func main() {
 	configPath := flag.String("config", "config/reserves.json", "Path to reserve configuration file")
@@ -92,7 +110,7 @@ func main() {
 
 	// Configure each reserve
 	for _, reserve := range configs.Reserves {
-		token, wallet, balance, err := reserve.ToOnChainValues()
+		token, wallet, err := reserve.ToOnChainValues()
 		if err != nil {
 			log.Printf("Failed to parse reserve config: %v", err)
 			continue
@@ -119,10 +137,9 @@ func main() {
 		auth.GasPrice = gasPrice
 
 		// Configure reserve
-		tx, err := contract.Transact(auth, "configureReserve", token, wallet, balance)
+		tx, err := contract.Transact(auth, "configureReserve", token, wallet)
 		if err != nil {
-			log.Printf("Failed to configure reserve for token %s and wallet %s: %v",
-				token.Hex(), wallet.Hex(), err)
+			log.Printf("Failed to configure reserve: %v", err)
 			continue
 		}
 
@@ -139,7 +156,6 @@ func main() {
 			log.Printf("Reserve configured successfully!")
 			log.Printf("Token: %s", token.Hex())
 			log.Printf("Wallet: %s", wallet.Hex())
-			log.Printf("Balance: %s", balance.String())
 		} else {
 			log.Printf("Transaction failed!")
 		}

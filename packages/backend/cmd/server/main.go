@@ -3,11 +3,9 @@ package main
 import (
 	"log"
 	"os"
-	"strings"
 
 	"github.com/Tarunshrma/proof-or-reserve/internal/api"
 	"github.com/Tarunshrma/proof-or-reserve/internal/config"
-	"github.com/Tarunshrma/proof-or-reserve/internal/service"
 	"github.com/Tarunshrma/proof-or-reserve/internal/storage"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
@@ -20,9 +18,35 @@ func main() {
 	}
 
 	// Initialize config
-	cfg, err := config.Load()
-	if err != nil {
-		log.Fatalf("Failed to load config: %v", err)
+	cfg := &config.Config{
+		ListenAddr:         os.Getenv("LISTEN_ADDR"),
+		StoragePath:        os.Getenv("STORAGE_PATH"),
+		SignatureStorePath: os.Getenv("SIGNATURE_STORE_PATH"),
+		EthereumRPC:        os.Getenv("ETHEREUM_RPC"),
+		ContractAddress:    os.Getenv("CONTRACT_ADDRESS"),
+		PrivateKey:         os.Getenv("PRIVATE_KEY"),
+	}
+
+	// Set defaults if not provided
+	if cfg.ListenAddr == "" {
+		cfg.ListenAddr = ":8080"
+	}
+	if cfg.StoragePath == "" {
+		cfg.StoragePath = "data/storage.json"
+	}
+	if cfg.SignatureStorePath == "" {
+		cfg.SignatureStorePath = "data/signatures.json"
+	}
+	if cfg.EthereumRPC == "" {
+		cfg.EthereumRPC = "https://erpc.apothem.network"
+	}
+
+	// Validate required config
+	if cfg.ContractAddress == "" {
+		log.Fatal("CONTRACT_ADDRESS is required")
+	}
+	if cfg.PrivateKey == "" {
+		log.Fatal("PRIVATE_KEY is required")
 	}
 
 	// Initialize storages
@@ -36,30 +60,7 @@ func main() {
 		log.Printf("Warning: Could not load existing signatures: %v", err)
 	}
 
-	// Initialize signature service
-	sigService, err := service.NewSignatureService(cfg.PrivateKey, signatureStore)
-	if err != nil {
-		log.Fatalf("Failed to initialize signature service: %v", err)
-	}
-
-	// Generate signatures for configured token-wallet pairs
-	if tokenWalletPairs := os.Getenv("TOKEN_WALLET_PAIRS"); tokenWalletPairs != "" {
-		pairs := strings.Split(tokenWalletPairs, ",")
-		for _, pair := range pairs {
-			parts := strings.Split(strings.TrimSpace(pair), ":")
-			if len(parts) == 2 {
-				token := strings.TrimSpace(parts[0])
-				wallet := strings.TrimSpace(parts[1])
-				if err := sigService.GenerateSignature(token, wallet); err != nil {
-					log.Printf("Failed to generate signature for token %s and wallet %s: %v", token, wallet, err)
-				} else {
-					log.Printf("Generated signature for token %s and wallet %s", token, wallet)
-				}
-			}
-		}
-	}
-
-	// Initialize API handlers with signature store
+	// Initialize API handlers
 	handler := api.NewHandler(cfg, store, signatureStore)
 
 	// Setup Gin router
@@ -70,6 +71,18 @@ func main() {
 	r.GET("/signature/:token/:wallet", handler.GetSignature)
 	r.POST("/verifySignature", handler.VerifySignature)
 	r.GET("/lastVerified/:token/:wallet", handler.GetLastVerified)
+
+	// Add CORS middleware if needed
+	r.Use(func(c *gin.Context) {
+		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		if c.Request.Method == "OPTIONS" {
+			c.AbortWithStatus(204)
+			return
+		}
+		c.Next()
+	})
 
 	// Start server
 	log.Printf("Starting server on %s", cfg.ListenAddr)

@@ -2,8 +2,6 @@ package config
 
 import (
 	"encoding/json"
-	"fmt"
-	"math/big"
 	"os"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -11,9 +9,8 @@ import (
 
 // ReserveConfig represents a single reserve configuration
 type ReserveConfig struct {
-	Token   string `json:"token"`
-	Wallet  string `json:"wallet"`
-	Balance string `json:"balance"` // Balance in string format to handle large numbers
+	Token  string `json:"token"`
+	Wallet string `json:"wallet"`
 }
 
 // ReserveConfigurations represents multiple reserve configurations
@@ -37,16 +34,8 @@ func LoadReserveConfigs(filepath string) (*ReserveConfigurations, error) {
 }
 
 // ToOnChainValues converts string values to their on-chain representation
-func (rc *ReserveConfig) ToOnChainValues() (token, wallet common.Address, balance *big.Int, err error) {
+func (rc *ReserveConfig) ToOnChainValues() (token, wallet common.Address, err error) {
 	token = common.HexToAddress(rc.Token)
 	wallet = common.HexToAddress(rc.Wallet)
-
-	balance = new(big.Int)
-	balance, ok := balance.SetString(rc.Balance, 10)
-	if !ok {
-		return common.Address{}, common.Address{}, nil,
-			fmt.Errorf("invalid balance format: %s", rc.Balance)
-	}
-
-	return token, wallet, balance, nil
+	return token, wallet, nil
 }

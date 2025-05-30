@@ -5,13 +5,25 @@ import (
 	"os"
 )
 
+// Config holds all configuration for the application
 type Config struct {
-	ListenAddr         string
-	StoragePath        string
+	// ListenAddr is the address and port the server will listen on
+	ListenAddr string
+
+	// StoragePath is the path to the JSON storage file
+	StoragePath string
+
+	// SignatureStorePath is the path to the signature storage file
 	SignatureStorePath string
-	EthereumRPC        string
-	ContractAddress    string
-	PrivateKey         string
+
+	// EthereumRPC is the URL of the Ethereum RPC endpoint
+	EthereumRPC string
+
+	// ContractAddress is the address of the deployed ProofOfReserve contract
+	ContractAddress string
+
+	// PrivateKey is the private key used for signing proofs
+	PrivateKey string
 }
 
 func Load() (*Config, error) {

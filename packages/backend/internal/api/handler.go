@@ -3,7 +3,6 @@ package api
 import (
 	"math/big"
 	"net/http"
-	"time"
 
 	"github.com/Tarunshrma/proof-or-reserve/internal/config"
 	"github.com/Tarunshrma/proof-or-reserve/internal/storage"
@@ -13,28 +12,28 @@ import (
 )
 
 type Handler struct {
-	cfg       *config.Config
-	store     *storage.JSONStorage
-	ethClient *ethclient.Client
+	cfg            *config.Config
+	store          *storage.JSONStorage
+	signatureStore *storage.SignatureStorage
+	ethClient      *ethclient.Client
 }
 
 type VerifySignatureRequest struct {
-	Token     string `json:"token" binding:"required"`
-	Wallet    string `json:"wallet" binding:"required"`
-	Balance   string `json:"balance" binding:"required"`
-	Signature string `json:"signature" binding:"required"`
+	Token  string `json:"token" binding:"required"`
+	Wallet string `json:"wallet" binding:"required"`
 }
 
-func NewHandler(cfg *config.Config, store *storage.JSONStorage) *Handler {
+func NewHandler(cfg *config.Config, store *storage.JSONStorage, signatureStore *storage.SignatureStorage) *Handler {
 	client, err := ethclient.Dial(cfg.EthereumRPC)
 	if err != nil {
 		panic(err)
 	}
 
 	return &Handler{
-		cfg:       cfg,
-		store:     store,
-		ethClient: client,
+		cfg:            cfg,
+		store:          store,
+		signatureStore: signatureStore,
+		ethClient:      client,
 	}
 }
 
@@ -62,6 +61,25 @@ func (h *Handler) GetReserveBalance(c *gin.Context) {
 	})
 }
 
+func (h *Handler) GetSignature(c *gin.Context) {
+	token := c.Param("token")
+	wallet := c.Param("wallet")
+
+	// Validate addresses
+	if !common.IsHexAddress(token) || !common.IsHexAddress(wallet) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid address format"})
+		return
+	}
+
+	record, err := h.signatureStore.Get(token, wallet)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Signature not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, record)
+}
+
 func (h *Handler) VerifySignature(c *gin.Context) {
 	var req VerifySignatureRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -75,22 +93,22 @@ func (h *Handler) VerifySignature(c *gin.Context) {
 		return
 	}
 
-	// Verify signature (implement this based on your contract's verification logic)
-	if err := h.verifySignature(req.Token, req.Wallet, req.Balance, req.Signature); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	// Get stored signature
+	record, err := h.signatureStore.Get(req.Token, req.Wallet)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Signature not found"})
 		return
 	}
 
 	// Store verification record
-	record := &storage.VerificationRecord{
+	verificationRecord := &storage.VerificationRecord{
 		Token:     req.Token,
 		Wallet:    req.Wallet,
-		Balance:   req.Balance,
-		Signature: req.Signature,
-		Timestamp: time.Now(),
+		Signature: record.Signature,
+		Timestamp: record.GeneratedAt,
 	}
 
-	if err := h.store.StoreVerification(record); err != nil {
+	if err := h.store.StoreVerification(verificationRecord); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to store verification"})
 		return
 	}

@@ -1,17 +1,26 @@
 import { ethers } from "hardhat";
 
 async function main() {
-  // Deploy TestToken
-  const TestToken = await ethers.getContractFactory("TestToken");
-  const testToken = await TestToken.deploy();
-  await testToken.waitForDeployment();
-  console.log("TestToken deployed to:", await testToken.getAddress());
+  const [deployer] = await ethers.getSigners();
+  console.log("Deploying contracts with the account:", deployer.address);
 
-  // Deploy ProofOfReserve
+  console.log("Deploying ProofOfReserve contract...");
   const ProofOfReserve = await ethers.getContractFactory("ProofOfReserve");
   const proofOfReserve = await ProofOfReserve.deploy();
+
+  console.log("Waiting for deployment...");
   await proofOfReserve.waitForDeployment();
-  console.log("ProofOfReserve deployed to:", await proofOfReserve.getAddress());
+
+  const address = await proofOfReserve.getAddress();
+  
+  // Convert the address to XDC format
+  const xdcAddress = "xdc" + address.slice(2);
+  
+  console.log("ProofOfReserve deployed to:", address);
+  console.log("XDC format address:", xdcAddress);
+  
+  console.log("\nVerification command:");
+  console.log(`npx hardhat verify --network apothem ${address}`);
 }
 
 main()

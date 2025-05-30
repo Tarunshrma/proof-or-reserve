@@ -6,18 +6,20 @@ import (
 )
 
 type Config struct {
-	ListenAddr      string
-	StoragePath     string
-	EthereumRPC     string
-	ContractAddress string
-	PrivateKey      string
+	ListenAddr         string
+	StoragePath        string
+	SignatureStorePath string
+	EthereumRPC        string
+	ContractAddress    string
+	PrivateKey         string
 }
 
 func Load() (*Config, error) {
 	cfg := &Config{
-		ListenAddr:  getEnvOrDefault("LISTEN_ADDR", ":8080"),
-		StoragePath: getEnvOrDefault("STORAGE_PATH", "data/storage.json"),
-		EthereumRPC: os.Getenv("ETHEREUM_RPC"),
+		ListenAddr:         getEnvOrDefault("LISTEN_ADDR", ":8080"),
+		StoragePath:        getEnvOrDefault("STORAGE_PATH", "data/storage.json"),
+		SignatureStorePath: getEnvOrDefault("SIGNATURE_STORE_PATH", "data/signatures.json"),
+		EthereumRPC:        os.Getenv("ETHEREUM_RPC"),
 	}
 
 	// Required fields

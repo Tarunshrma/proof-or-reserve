@@ -4,12 +4,20 @@ import * as dotenv from "dotenv";
 
 dotenv.config();
 
-// Make sure PRIVATE_KEY is available
-const PRIVATE_KEY = process.env.PRIVATE_KEY || "0000000000000000000000000000000000000000000000000000000000000000";
+if (!process.env.PRIVATE_KEY) {
+  throw new Error("Please set your PRIVATE_KEY in a .env file");
+}
+
+// Make sure PRIVATE_KEY is available and properly formatted
+const PRIVATE_KEY = process.env.PRIVATE_KEY.startsWith("0x") ? 
+  process.env.PRIVATE_KEY.slice(2) : 
+  process.env.PRIVATE_KEY;
+
+console.log("Config loaded. Network: Apothem XDC Testnet (Chain ID: 51)");
 
 const config: HardhatUserConfig = {
   solidity: {
-    version: "0.8.24",
+    version: "0.8.20",
     settings: {
       optimizer: {
         enabled: true,
@@ -18,25 +26,11 @@ const config: HardhatUserConfig = {
     }
   },
   networks: {
-    hardhat: {
-      chainId: 1337
-    },
-    localhost: {
-      url: "http://127.0.0.1:8545"
-    },
     apothem: {
       url: process.env.XDC_APOTHEM_RPC || "https://erpc.apothem.network",
-      accounts: [PRIVATE_KEY],
       chainId: 51,
-      gas: 5000000,
-      gasPrice: 20000000000
+      accounts: [PRIVATE_KEY]
     }
-  },
-  paths: {
-    sources: "./contracts",
-    tests: "./test",
-    cache: "./cache",
-    artifacts: "./artifacts"
   }
 };
 

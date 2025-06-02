@@ -10,6 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/ethclient"
 )
 
@@ -31,7 +32,7 @@ const ProofOfReserveABI = `[
     {"inputs":[{"internalType":"bytes32","name":"ethSignedMessageHash","type":"bytes32"},{"internalType":"bytes","name":"signature","type":"bytes"}],"name":"recoverSigner","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"pure","type":"function"},
     {"inputs":[{"internalType":"address","name":"newOwner","type":"address"}],"name":"transferOwnership","outputs":[],"stateMutability":"nonpayable","type":"function"},
     {"inputs":[{"internalType":"address","name":"token","type":"address"},{"internalType":"address","name":"wallet","type":"address"}],"name":"validUntilTimestamp","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
-    {"inputs":[{"internalType":"address","name":"token","type":"address"},{"internalType":"address","name":"wallet","type":"address"},{"internalType":"bytes","name":"signature","type":"bytes"},{"internalType":"uint256","name":"validUntil","type":"uint256"}],"name":"verifyProof","outputs":[{"internalType":"bool","name":"success","type":"bool"}],"stateMutability":"nonpayable","type":"function"}
+    {"inputs":[{"internalType":"address","name":"token","type":"address"},{"internalType":"address","name":"wallet","type":"address"},{"internalType":"bytes","name":"signature","type":"bytes"}],"name":"verifyProof","outputs":[{"internalType":"bool","name":"success","type":"bool"}],"stateMutability":"nonpayable","type":"function"}
 ]`
 
 type BlockchainService struct {
@@ -87,34 +88,70 @@ func (s *BlockchainService) GetReserveBalance(token, wallet string) (*big.Int, e
 	return result, nil
 }
 
-func (s *BlockchainService) VerifyProof(token, wallet string, signature []byte, validUntil uint64) (bool, error) {
+func (s *BlockchainService) VerifySignature(token, wallet, signature string) (bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), s.defaultTimeout)
 	defer cancel()
 
-	data, err := s.contractABI.Pack("verifyProof",
-		common.HexToAddress(token),
-		common.HexToAddress(wallet),
-		signature,
-		big.NewInt(int64(validUntil)),
-	)
+	// First check if contract exists
+	code, err := s.client.CodeAt(ctx, s.contractAddr, nil)
 	if err != nil {
-		return false, fmt.Errorf("failed to pack data: %v", err)
+		return false, fmt.Errorf("failed to check contract code: %v", err)
+	}
+	if len(code) == 0 {
+		return false, fmt.Errorf("no contract found at address %s", s.contractAddr.Hex())
 	}
 
-	msg := ethereum.CallMsg{
+	fmt.Printf("\n=== Contract Verification Debug ===\n")
+	fmt.Printf("Contract Address: %s\n", s.contractAddr.Hex())
+	fmt.Printf("Token: %s\n", token)
+	fmt.Printf("Wallet: %s\n", wallet)
+	fmt.Printf("Signature: %s\n", signature)
+
+	// Check if reserve is active
+	isActive, err := s.IsReserveWallet(token, wallet)
+	if err != nil {
+		return false, fmt.Errorf("failed to check reserve status: %v", err)
+	}
+	fmt.Printf("Is Reserve Active: %v\n", isActive)
+
+	if !isActive {
+		return false, fmt.Errorf("reserve not active")
+	}
+
+	// Convert parameters
+	tokenAddr := common.HexToAddress(token)
+	walletAddr := common.HexToAddress(wallet)
+	signatureBytes := hexutil.MustDecode(signature)
+
+	// Call verifyProof
+	data, err := s.contractABI.Pack("verifyProof", tokenAddr, walletAddr, signatureBytes)
+	if err != nil {
+		return false, fmt.Errorf("failed to pack parameters: %v", err)
+	}
+
+	fmt.Printf("\nContract Call Data:\n")
+	fmt.Printf("Method: verifyProof\n")
+	fmt.Printf("Packed Data: %s\n", hexutil.Encode(data))
+
+	// Make the call
+	result, err := s.client.CallContract(ctx, ethereum.CallMsg{
 		To:   &s.contractAddr,
 		Data: data,
-	}
-
-	output, err := s.client.CallContract(ctx, msg, nil)
+	}, nil)
 	if err != nil {
-		return false, fmt.Errorf("failed to call contract: %v", err)
+		return false, fmt.Errorf("contract call failed: %v", err)
 	}
 
+	fmt.Printf("Contract Call Result: %s\n", hexutil.Encode(result))
+
+	// Unpack result
 	var success bool
-	if err := s.contractABI.UnpackIntoInterface(&success, "verifyProof", output); err != nil {
+	if err := s.contractABI.UnpackIntoInterface(&success, "verifyProof", result); err != nil {
 		return false, fmt.Errorf("failed to unpack result: %v", err)
 	}
+
+	fmt.Printf("Verification Result: %v\n", success)
+	fmt.Printf("=== End Debug ===\n\n")
 
 	return success, nil
 }

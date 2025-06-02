@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/hex"
 	"net/http"
 
 	"github.com/Tarunshrma/proof-or-reserve/internal/config"
@@ -82,8 +81,9 @@ func (h *Handler) GetSignature(c *gin.Context) {
 // VerifySignature verifies the stored signature against the smart contract
 func (h *Handler) VerifySignature(c *gin.Context) {
 	var req struct {
-		Token  string `json:"token" binding:"required"`
-		Wallet string `json:"wallet" binding:"required"`
+		Token     string `json:"token" binding:"required"`
+		Wallet    string `json:"wallet" binding:"required"`
+		Signature string `json:"signature" binding:"required"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -96,45 +96,18 @@ func (h *Handler) VerifySignature(c *gin.Context) {
 		return
 	}
 
-	// Get stored signature
-	record, err := h.sigService.GetSignature(req.Token, req.Wallet)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	if record == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Signature not found"})
-		return
-	}
-
-	// Convert hex signature to bytes
-	sigBytes, err := hex.DecodeString(record.Signature[2:]) // Remove "0x" prefix
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid signature format"})
-		return
-	}
-
 	// Verify proof on-chain
-	success, err := h.blockchain.VerifyProof(req.Token, req.Wallet, sigBytes, record.ValidUntil)
+	success, err := h.blockchain.VerifySignature(req.Token, req.Wallet, req.Signature)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify proof: " + err.Error()})
 		return
 	}
 
-	// Get on-chain validity status
-	isValid, validUntil, err := h.blockchain.IsProofValid(req.Token, req.Wallet)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check proof validity: " + err.Error()})
-		return
-	}
-
 	c.JSON(http.StatusOK, gin.H{
-		"token":      req.Token,
-		"wallet":     req.Wallet,
-		"isValid":    isValid && success,
-		"validUntil": validUntil,
-		"signature":  record.Signature,
+		"token":     req.Token,
+		"wallet":    req.Wallet,
+		"isValid":   success,
+		"signature": req.Signature,
 	})
 }
 

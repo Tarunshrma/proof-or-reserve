@@ -3,7 +3,6 @@ package service
 import (
 	"crypto/ecdsa"
 	"fmt"
-	"math/big"
 	"time"
 
 	"github.com/Tarunshrma/proof-or-reserve/internal/storage"
@@ -23,6 +22,9 @@ func NewSignatureService(privateKeyHex string, store *storage.SignatureStorage) 
 		return nil, fmt.Errorf("invalid private key: %v", err)
 	}
 
+	address := crypto.PubkeyToAddress(privateKey.PublicKey)
+	fmt.Printf("Address: %s\n", address.Hex())
+
 	return &SignatureService{
 		privateKey:     privateKey,
 		signatureStore: store,
@@ -34,34 +36,75 @@ func (s *SignatureService) GenerateSignature(token, wallet string) error {
 	tokenAddr := common.HexToAddress(token)
 	walletAddr := common.HexToAddress(wallet)
 
-	// Set validity period (30 days from now)
-	validUntil := uint64(time.Now().Add(30 * 24 * time.Hour).Unix())
+	// Debug logging
+	fmt.Printf("\n=== Signature Generation Debug ===\n")
+	fmt.Printf("Input Parameters:\n")
+	fmt.Printf("Token Address: %s\n", tokenAddr.Hex())
+	fmt.Printf("Wallet Address: %s\n", walletAddr.Hex())
 
-	// Create message hash as per smart contract
-	message := crypto.Keccak256(
-		common.LeftPadBytes(tokenAddr.Bytes(), 32),
-		common.LeftPadBytes(walletAddr.Bytes(), 32),
-		common.LeftPadBytes(big.NewInt(int64(validUntil)).Bytes(), 32),
-	)
+	// Pack parameters with a simple prefix
+	prefix := []byte("ProofOfReserve:")
+	packedData := append(prefix, tokenAddr.Bytes()...)
+	packedData = append(packedData, walletAddr.Bytes()...)
+
+	fmt.Printf("\nPacked Data (hex): %s\n", hexutil.Encode(packedData))
+
+	// Create message hash
+	messageHash := crypto.Keccak256Hash(packedData)
+	fmt.Printf("Message Hash: %s\n", messageHash.Hex())
 
 	// Create Ethereum signed message hash
-	ethMessage := fmt.Sprintf("\x19Ethereum Signed Message:\n%d%s", len(message), message)
-	ethHash := crypto.Keccak256Hash([]byte(ethMessage))
+	ethSignedMessageHash := crypto.Keccak256Hash(
+		[]byte("\x19Ethereum Signed Message:\n32"),
+		messageHash.Bytes(),
+	)
+	fmt.Printf("Eth Signed Message Hash: %s\n", ethSignedMessageHash.Hex())
 
 	// Sign the hash
-	signature, err := crypto.Sign(ethHash.Bytes(), s.privateKey)
+	signature, err := crypto.Sign(ethSignedMessageHash.Bytes(), s.privateKey)
 	if err != nil {
 		return fmt.Errorf("failed to sign message: %v", err)
 	}
+
+	// Get the signer's address for verification
+	publicKey, err := crypto.Ecrecover(ethSignedMessageHash.Bytes(), signature)
+	if err != nil {
+		return fmt.Errorf("failed to recover public key: %v", err)
+	}
+
+	pubKey, err := crypto.UnmarshalPubkey(publicKey)
+	if err != nil {
+		return fmt.Errorf("failed to unmarshal public key: %v", err)
+	}
+
+	recoveredAddr := crypto.PubkeyToAddress(*pubKey)
+	fmt.Printf("\nSignature Components:\n")
+	fmt.Printf("R: %s\n", hexutil.Encode(signature[:32]))
+	fmt.Printf("S: %s\n", hexutil.Encode(signature[32:64]))
+	fmt.Printf("V (before adjustment): %d\n", signature[64])
+
+	// Fix v value for Ethereum's EIP-155
+	if signature[64] < 27 {
+		signature[64] += 27
+	}
+	fmt.Printf("V (after adjustment): %d\n", signature[64])
+
+	fmt.Printf("\nVerification:\n")
+	fmt.Printf("Recovered signer address: %s\n", recoveredAddr.Hex())
+	fmt.Printf("Expected wallet address: %s\n", walletAddr.Hex())
+	fmt.Printf("Addresses match: %v\n", recoveredAddr == walletAddr)
 
 	// Store the signature
 	record := &storage.SignatureRecord{
 		Token:       token,
 		Wallet:      wallet,
 		Signature:   hexutil.Encode(signature),
-		ValidUntil:  validUntil,
+		ValidUntil:  uint64(time.Now().Add(30 * 24 * time.Hour).Unix()), // Keep this for compatibility
 		GeneratedAt: time.Now(),
 	}
+
+	fmt.Printf("\nFinal Signature: %s\n", record.Signature)
+	fmt.Printf("=== End Debug ===\n\n")
 
 	return s.signatureStore.SaveSignature(record)
 }

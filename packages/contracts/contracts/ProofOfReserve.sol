@@ -3,6 +3,8 @@ pragma solidity ^0.8.0;
 
 interface IERC20 {
     function balanceOf(address account) external view returns (uint256);
+    function name() external view returns (string memory);
+    function symbol() external view returns (string memory);
 }
 
 /**
@@ -20,6 +22,15 @@ contract ProofOfReserve {
     event ReserveDeactivated(address indexed token, address indexed wallet);
     event ProofVerified(address indexed token, address indexed wallet, bool success);
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
+
+    // Struct for returning multiple details
+    struct ReserveDetails {
+        bool isConfigured;
+        string name;
+        string symbol;
+        uint256 balance;
+        uint256 lastVerified;
+    }
 
     // Modifiers
     modifier onlyOwner() {
@@ -171,5 +182,51 @@ contract ProofOfReserve {
         require(v == 27 || v == 28, "Invalid signature 'v' value");
 
         return ecrecover(ethSignedMessageHash, v, r, s);
+    }
+
+    /**
+     * @notice Get comprehensive details for a specific reserve
+     * @param token The ERC20 token address
+     * @param wallet The reserve wallet address
+     * @return details The ReserveDetails struct
+     */
+    function getReserveDetails(
+        address token,
+        address wallet
+    ) external view returns (ReserveDetails memory details) {
+        bool configured = isReserveWallet[token][wallet];
+        string memory tokenName = "";
+        string memory tokenSymbol = "";
+        uint256 bal = 0;
+        uint256 verifiedTime = 0;
+
+        if (configured) {
+            if (token != address(0)) {
+                // It's good practice to wrap these calls in a try/catch if they might revert,
+                // but for a view function, letting it revert is often acceptable if token is not ERC20 compliant.
+                // However, a simple frontend might prefer empty strings over a full revert.
+                // For simplicity here, we'll assume valid ERC20 or accept reverts.
+                IERC20 tokenContract = IERC20(token);
+                try tokenContract.name() returns (string memory _name) {
+                    tokenName = _name;
+                } catch { /* Fails silently, tokenName remains empty */ }
+                try tokenContract.symbol() returns (string memory _symbol) {
+                    tokenSymbol = _symbol;
+                } catch { /* Fails silently, tokenSymbol remains empty */ }
+                try tokenContract.balanceOf(wallet) returns (uint256 _balance) {
+                    bal = _balance;
+                } catch { /* Fails silently, bal remains 0 */ }
+            }
+            verifiedTime = lastVerifiedTimestamp[token][wallet];
+        }
+
+        details = ReserveDetails({
+            isConfigured: configured,
+            name: tokenName,
+            symbol: tokenSymbol,
+            balance: bal,
+            lastVerified: verifiedTime
+        });
+        return details;
     }
 }

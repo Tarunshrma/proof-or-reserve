@@ -24,6 +24,9 @@ type Config struct {
 
 	// PrivateKey is the private key used for signing proofs
 	PrivateKey string
+
+	// AbiFilePath is the path to the contract's ABI JSON file
+	AbiFilePath string
 }
 
 func Load() (*Config, error) {
@@ -32,6 +35,7 @@ func Load() (*Config, error) {
 		StoragePath:        getEnvOrDefault("STORAGE_PATH", "data/storage.json"),
 		SignatureStorePath: getEnvOrDefault("SIGNATURE_STORE_PATH", "data/signatures.json"),
 		EthereumRPC:        os.Getenv("ETHEREUM_RPC"),
+		AbiFilePath:        getEnvOrDefault("ABI_FILE_PATH", "config/ProofOfReserve.json"),
 	}
 
 	// Required fields

@@ -2,51 +2,30 @@ package main
 
 import (
 	"log"
-	"os"
+	"net/http"
+
+	// "os" // No longer needed if using config.Load() fully
 
 	"github.com/Tarunshrma/proof-or-reserve/internal/api"
-	"github.com/Tarunshrma/proof-or-reserve/internal/config"
+	"github.com/Tarunshrma/proof-or-reserve/internal/config"  // Will use config.Load()
+	"github.com/Tarunshrma/proof-or-reserve/internal/service" // Added for service creation
 	"github.com/Tarunshrma/proof-or-reserve/internal/storage"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 )
 
 func main() {
-	// Load environment variables
+	// Load environment variables from .env in the current directory
+	// When running `go run ./cmd/server/main.go` from `packages/backend/`,
+	// the current directory for loading .env should be `packages/backend/`.
 	if err := godotenv.Load(); err != nil {
-		log.Printf("Warning: .env file not found")
+		log.Printf("Warning: .env file not found in the current directory. Defaults will be used if env vars are not set elsewhere.")
 	}
 
-	// Initialize config
-	cfg := &config.Config{
-		ListenAddr:         os.Getenv("LISTEN_ADDR"),
-		StoragePath:        os.Getenv("STORAGE_PATH"),
-		SignatureStorePath: os.Getenv("SIGNATURE_STORE_PATH"),
-		EthereumRPC:        os.Getenv("ETHEREUM_RPC"),
-		ContractAddress:    os.Getenv("CONTRACT_ADDRESS"),
-		PrivateKey:         os.Getenv("PRIVATE_KEY"),
-	}
-
-	// Set defaults if not provided
-	if cfg.ListenAddr == "" {
-		cfg.ListenAddr = ":8080"
-	}
-	if cfg.StoragePath == "" {
-		cfg.StoragePath = "data/storage.json"
-	}
-	if cfg.SignatureStorePath == "" {
-		cfg.SignatureStorePath = "data/signatures.json"
-	}
-	if cfg.EthereumRPC == "" {
-		cfg.EthereumRPC = "https://erpc.apothem.network"
-	}
-
-	// Validate required config
-	if cfg.ContractAddress == "" {
-		log.Fatal("CONTRACT_ADDRESS is required")
-	}
-	if cfg.PrivateKey == "" {
-		log.Fatal("PRIVATE_KEY is required")
+	// Initialize config using the centralized Load function
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
 	}
 
 	// Initialize storages
@@ -60,29 +39,45 @@ func main() {
 		log.Printf("Warning: Could not load existing signatures: %v", err)
 	}
 
+	// Initialize services
+	blockchainSvc, err := service.NewBlockchainService(cfg.EthereumRPC, cfg.ContractAddress, cfg.AbiFilePath)
+	if err != nil {
+		log.Fatalf("Failed to create blockchain service: %v", err)
+	}
+
+	sigSvc, err := service.NewSignatureService(cfg.PrivateKey, signatureStore)
+	if err != nil {
+		log.Fatalf("Failed to create signature service: %v", err)
+	}
+
 	// Initialize API handlers
-	handler := api.NewHandler(cfg, store, signatureStore)
+	handler := api.NewHandler(cfg, store, signatureStore, blockchainSvc, sigSvc)
 
 	// Setup Gin router
 	r := gin.Default()
 
-	// Register routes
-	r.GET("/reserveBalance/:token/:wallet", handler.GetReserveBalance)
-	r.GET("/signature/:token/:wallet", handler.GetSignature)
-	r.POST("/verifySignature", handler.VerifySignature)
-	r.GET("/lastVerified/:token/:wallet", handler.GetLastVerified)
-
-	// Add CORS middleware if needed
+	// Add CORS middleware (important for frontend integration)
 	r.Use(func(c *gin.Context) {
-		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
-		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		c.Writer.Header().Set("Access-Control-Allow-Origin", "*") // For demo, allow all. For prod, restrict to frontend URL.
+		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, DELETE")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization") // Add Authorization if you plan to use it
 		if c.Request.Method == "OPTIONS" {
-			c.AbortWithStatus(204)
+			c.AbortWithStatus(http.StatusNoContent) // Use 204 No Content for OPTIONS preflight
 			return
 		}
 		c.Next()
 	})
+
+	// Register routes
+	// New routes for frontend integration
+	r.GET("/reserve-details/:token/:wallet", handler.GetReserveDetails)
+	r.POST("/initiate-onchain-verification", handler.InitiateOnchainVerification)
+
+	// Existing/Old routes (kept for reference or other uses if any)
+	r.GET("/reserveBalance/:token/:wallet", handler.GetReserveBalance) // Covered by /reserve-details
+	r.GET("/signature/:token/:wallet", handler.GetSignature)
+	// r.POST("/verifySignature", handler.VerifySignature) // Superseded by /initiate-onchain-verification
+	// r.GET("/lastVerified/:token/:wallet", handler.GetLastVerified) // Covered by /reserve-details
 
 	// Start server
 	log.Printf("Starting server on %s", cfg.ListenAddr)

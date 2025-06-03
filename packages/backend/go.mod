@@ -43,6 +43,7 @@ require (
 	github.com/pelletier/go-toml/v2 v2.0.8 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/shirou/gopsutil v3.21.11+incompatible // indirect
+	github.com/stretchr/objx v0.5.2 // indirect
 	github.com/supranational/blst v0.3.11 // indirect
 	github.com/tklauser/go-sysconf v0.3.12 // indirect
 	github.com/tklauser/numcpus v0.6.1 // indirect

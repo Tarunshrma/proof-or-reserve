@@ -69,6 +69,8 @@ func main() {
 	})
 
 	// Register routes
+	r.GET("/assets/configured", handler.GetConfiguredAssets) // New route for serving static asset configurations
+
 	// New routes for frontend integration
 	r.GET("/reserve-details/:token/:wallet", handler.GetReserveDetails)
 	r.POST("/initiate-onchain-verification", handler.InitiateOnchainVerification)

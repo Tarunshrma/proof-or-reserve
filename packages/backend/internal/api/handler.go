@@ -1,6 +1,9 @@
 package api
 
 import (
+	"encoding/json"
+	"io/ioutil"
+	"log"
 	"net/http"
 
 	"github.com/Tarunshrma/proof-or-reserve/internal/config"
@@ -284,3 +287,46 @@ func (h *Handler) GetLastVerified(c *gin.Context) {
 	})
 }
 */
+
+// AssetConfigJSON defines the structure for asset configurations read from the backend JSON file.
+// This matches the structure that was previously in the frontend's assets.ts
+// and the new reserves_config.json file.
+type AssetConfigJSON struct {
+	ID            string `json:"id"`
+	DisplayName   string `json:"displayName"`
+	TokenAddress  string `json:"tokenAddress"`
+	WalletAddress string `json:"walletAddress"`
+	LogoURL       string `json:"logoUrl,omitempty"`
+}
+
+// GetConfiguredAssets serves the list of statically configured assets from a JSON file.
+func (h *Handler) GetConfiguredAssets(c *gin.Context) {
+	filePath := h.config.AssetsConfigPath
+	log.Printf("Attempting to read assets configuration from: %s", filePath)
+
+	data, err := ioutil.ReadFile(filePath)
+	if err != nil {
+		log.Printf("ERROR: Failed to read assets configuration from %s: %v", filePath, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read assets configuration", "details": err.Error()})
+		return
+	}
+	log.Printf("Successfully read %d bytes from %s", len(data), filePath)
+
+	var assets []AssetConfigJSON
+	err = json.Unmarshal(data, &assets)
+	if err != nil {
+		log.Printf("ERROR: Failed to parse assets configuration from %s: %v. Data (first 100 bytes): %s", filePath, err, string(data[:min(100, len(data))]))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse assets configuration", "details": err.Error()})
+		return
+	}
+	log.Printf("Successfully parsed assets configuration. Number of assets: %d", len(assets))
+
+	c.JSON(http.StatusOK, assets)
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}

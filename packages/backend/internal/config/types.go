@@ -39,3 +39,18 @@ func (rc *ReserveConfig) ToOnChainValues() (token, wallet common.Address, err er
 	wallet = common.HexToAddress(rc.Wallet)
 	return token, wallet, nil
 }
+
+// ServerConfig holds settings for the server
+type ServerConfig struct {
+	ListenAddr string `env:"LISTEN_ADDR,default=:8082"`
+}
+
+// StorageConfig holds paths for data storage
+type StorageConfig struct {
+	StoragePath        string `env:"STORAGE_PATH,default=./data/reserves.json"`
+	SignatureStorePath string `env:"SIGNATURE_STORE_PATH,default=./data/signatures.json"`
+	AssetsConfigPath   string `env:"ASSETS_CONFIG_PATH,default=./data/reserves_config.json"`
+}
+
+// EthereumConfig holds settings for connecting to an Ethereum node
+// ... rest of the file

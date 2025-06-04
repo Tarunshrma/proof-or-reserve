@@ -302,31 +302,23 @@ type AssetConfigJSON struct {
 // GetConfiguredAssets serves the list of statically configured assets from a JSON file.
 func (h *Handler) GetConfiguredAssets(c *gin.Context) {
 	filePath := h.config.AssetsConfigPath
-	log.Printf("Attempting to read assets configuration from: %s", filePath)
 
 	data, err := ioutil.ReadFile(filePath)
 	if err != nil {
+		// Log the error for backend visibility
 		log.Printf("ERROR: Failed to read assets configuration from %s: %v", filePath, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read assets configuration", "details": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read assets configuration", "details": err.Error()}) // It can be useful to pass err.Error() in details for admins/devs
 		return
 	}
-	log.Printf("Successfully read %d bytes from %s", len(data), filePath)
 
 	var assets []AssetConfigJSON
 	err = json.Unmarshal(data, &assets)
 	if err != nil {
-		log.Printf("ERROR: Failed to parse assets configuration from %s: %v. Data (first 100 bytes): %s", filePath, err, string(data[:min(100, len(data))]))
+		// Log the error for backend visibility
+		log.Printf("ERROR: Failed to parse assets configuration from %s: %v", filePath, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse assets configuration", "details": err.Error()})
 		return
 	}
-	log.Printf("Successfully parsed assets configuration. Number of assets: %d", len(assets))
 
 	c.JSON(http.StatusOK, assets)
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }

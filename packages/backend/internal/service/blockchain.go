@@ -2,14 +2,14 @@ package service
 
 import (
 	"context"
+	"crypto/ecdsa"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"math/big"
 	"strings"
 	"time"
-
-	"crypto/ecdsa"
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -122,10 +122,9 @@ func (s *blockchainServiceImpl) GetReserveBalance(token, wallet string) (*big.In
 
 // VerifySignature sends a transaction to the verifyProof method on the smart contract.
 func (s *blockchainServiceImpl) VerifySignature(token, wallet, signature string) (bool, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), s.defaultTimeout+30*time.Second) // Increased timeout for tx
+	ctx, cancel := context.WithTimeout(context.Background(), s.defaultTimeout+30*time.Second)
 	defer cancel()
 
-	// 1. Load Private Key
 	pkHex := s.privateKeyString
 	if strings.HasPrefix(pkHex, "0x") {
 		pkHex = pkHex[2:]
@@ -135,92 +134,67 @@ func (s *blockchainServiceImpl) VerifySignature(token, wallet, signature string)
 		return false, fmt.Errorf("failed to parse private key: %v", err)
 	}
 
-	// 2. Derive Public Address from Private Key
 	publicKeyECDSA, ok := privateKeyECDSA.Public().(*ecdsa.PublicKey)
 	if !ok {
 		return false, fmt.Errorf("failed to derive public key")
 	}
 	fromAddress := ethcrypto.PubkeyToAddress(*publicKeyECDSA)
 
-	// 3. Get Chain ID
 	chainID, err := s.client.ChainID(ctx)
 	if err != nil {
 		return false, fmt.Errorf("failed to get chain ID: %v", err)
 	}
 
-	// 4. Create TransactOpts (for gas price, nonce)
 	auth, err := bind.NewKeyedTransactorWithChainID(privateKeyECDSA, chainID)
 	if err != nil {
 		return false, fmt.Errorf("failed to create transactor: %v", err)
 	}
 
-	// 5. Fetch Nonce
 	nonce, err := s.client.PendingNonceAt(ctx, fromAddress)
 	if err != nil {
 		return false, fmt.Errorf("failed to get pending nonce: %v", err)
 	}
 	auth.Nonce = big.NewInt(int64(nonce))
 
-	// 6. Gas Price and Limit
 	gasPrice, err := s.client.SuggestGasPrice(ctx)
 	if err != nil {
 		return false, fmt.Errorf("failed to suggest gas price: %v", err)
 	}
 	auth.GasPrice = gasPrice
-	auth.GasLimit = uint64(300000) // Set a reasonable gas limit for this transaction
-	auth.Value = big.NewInt(0)     // No ETH being sent
+	auth.GasLimit = uint64(300000)
+	auth.Value = big.NewInt(0)
 
-	// --- Existing logic for packing data ---
 	tokenAddr := common.HexToAddress(token)
 	walletAddr := common.HexToAddress(wallet)
 	signatureBytes := hexutil.MustDecode(signature)
 
-	// Pack the call to verifyProof
 	data, err := s.contractABI.Pack("verifyProof", tokenAddr, walletAddr, signatureBytes)
 	if err != nil {
 		return false, fmt.Errorf("failed to pack parameters for verifyProof: %v", err)
 	}
-	// --- End existing logic ---
 
-	fmt.Printf("\n=== Contract Transaction Debug ===\n")
-	fmt.Printf("From Address: %s\n", fromAddress.Hex())
-	fmt.Printf("Contract Address: %s\n", s.contractAddr.Hex())
-	fmt.Printf("Token: %s, Wallet: %s\n", token, wallet)
-	fmt.Printf("Nonce: %s, GasPrice: %s, GasLimit: %d\n", auth.Nonce.String(), auth.GasPrice.String(), auth.GasLimit)
-	fmt.Printf("Packed Data for verifyProof: %s\n", hexutil.Encode(data))
-
-	// 7. Create and Sign Transaction
 	tx := types.NewTransaction(auth.Nonce.Uint64(), s.contractAddr, auth.Value, auth.GasLimit, auth.GasPrice, data)
 
 	signedTx, err := types.SignTx(tx, types.NewEIP155Signer(chainID), privateKeyECDSA)
 	if err != nil {
 		return false, fmt.Errorf("failed to sign transaction: %v", err)
 	}
-	fmt.Printf("Signed Tx Hash: %s\n", signedTx.Hash().Hex())
 
-	// 8. Send Transaction
 	err = s.client.SendTransaction(ctx, signedTx)
 	if err != nil {
 		return false, fmt.Errorf("failed to send transaction: %v", err)
 	}
-	fmt.Printf("Transaction sent successfully. Waiting for mining...\n")
 
-	// 9. Wait for Mining and Get Receipt
 	receipt, err := bind.WaitMined(ctx, s.client, signedTx)
 	if err != nil {
 		return false, fmt.Errorf("failed to mine transaction: %v", err)
 	}
-	fmt.Printf("Transaction mined. Receipt Status: %d (1=Success, 0=Failure)\n", receipt.Status)
-	fmt.Printf("Transaction Hash: %s, Block Hash: %s, Block Number: %s\n", receipt.TxHash.Hex(), receipt.BlockHash.Hex(), receipt.BlockNumber.String())
-	fmt.Printf("Gas Used: %d\n", receipt.GasUsed)
 
-	// 10. Check Receipt Status
 	if receipt.Status == types.ReceiptStatusFailed {
 		callErr := checkTxFailureReason(s.client, fromAddress, signedTx, receipt.BlockNumber)
-		return false, fmt.Errorf("transaction failed on-chain (receipt status 0). Revert reason: %v", callErr)
+		log.Printf("On-chain transaction %s failed. Block: %s. Revert Reason: %v", signedTx.Hash().Hex(), receipt.BlockNumber.String(), callErr)
+		return false, fmt.Errorf("transaction failed on-chain (receipt status 0)")
 	}
-
-	fmt.Printf("=== End Transaction Debug ===\n\n")
 
 	return true, nil
 }
@@ -314,56 +288,34 @@ func (s *blockchainServiceImpl) GetReserveDetails(token, wallet string) (*Reserv
 	var reserveDetails ReserveDetailsOutput
 	err = s.contractABI.UnpackIntoInterface(&reserveDetails, "getReserveDetails", output)
 	if err == nil {
-		fmt.Println("DIAGNOSTIC: Successfully unpacked with contractABI.UnpackIntoInterface into struct")
 		return &reserveDetails, nil
-	} else {
-		fmt.Printf("DIAGNOSTIC: contractABI.UnpackIntoInterface into struct failed: %v. Raw: %s\n", err, hexutil.Encode(output))
 	}
 
-	fmt.Println("DIAGNOSTIC: Falling back to method.Outputs.UnpackValues")
 	var resultUnpacked []interface{}
 	var unpackValuesErr error
 	resultUnpacked, unpackValuesErr = method.Outputs.UnpackValues(output)
 	if unpackValuesErr != nil {
-		fmt.Printf("DIAGNOSTIC: method.Outputs.UnpackValues failed: %v. Raw: %s\n", unpackValuesErr, hexutil.Encode(output))
-		return nil, fmt.Errorf("failed to unpack getReserveDetails using UnpackValues (after UnpackIntoInterface also failed): %v", unpackValuesErr)
+		log.Printf("ERROR: UnpackIntoInterface failed (%v) AND UnpackValues also failed for getReserveDetails: %v. Raw output: %s", err, unpackValuesErr, hexutil.Encode(output))
+		return nil, fmt.Errorf("failed to unpack getReserveDetails (tried two methods): primary error: %v, fallback error: %v", err, unpackValuesErr)
 	}
 
-	fmt.Printf("DIAGNOSTIC: method.Outputs.UnpackValues successful. Result: %+v\n", resultUnpacked)
-
 	if len(resultUnpacked) == 0 {
-		return nil, fmt.Errorf("UnpackValues returned an empty slice, expected at least one element (the struct)")
+		return nil, fmt.Errorf("UnpackValues returned an empty slice for getReserveDetails")
 	}
 
 	dataValue := resultUnpacked[0]
-	fmt.Printf("DIAGNOSTIC: Concrete type of resultUnpacked[0] is: %T\n", dataValue)
 
-	if _, ok := dataValue.(ReserveDetailsOutput); ok {
-		fmt.Println("DIAGNOSTIC: Successfully type-asserted resultUnpacked[0] to ReserveDetailsOutput (unexpected)")
-		castedStruct := dataValue.(ReserveDetailsOutput)
-		if castedStruct.Balance == nil {
-			castedStruct.Balance = big.NewInt(0)
-		}
-		if castedStruct.LastVerified == nil {
-			castedStruct.LastVerified = big.NewInt(0)
-		}
-		return &castedStruct, nil
-	}
-
-	fmt.Println("DIAGNOSTIC: Attempting conversion of anonymous struct to ReserveDetailsOutput via JSON.")
 	var jsonData []byte
 	var jsonErr error
 	jsonData, jsonErr = json.Marshal(dataValue)
 	if jsonErr != nil {
-		return nil, fmt.Errorf("failed to marshal anonymous struct from UnpackValues to JSON: %v. Struct: %+v", jsonErr, dataValue)
+		return nil, fmt.Errorf("failed to marshal anonymous struct from UnpackValues to JSON for getReserveDetails: %v. Struct: %+v", jsonErr, dataValue)
 	}
-
-	fmt.Printf("DIAGNOSTIC: Successfully marshalled anonymous struct to JSON: %s\n", string(jsonData))
 
 	var targetStruct ReserveDetailsOutput
 	jsonErr = json.Unmarshal(jsonData, &targetStruct)
 	if jsonErr != nil {
-		return nil, fmt.Errorf("failed to unmarshal JSON into ReserveDetailsOutput: %v. JSON: %s", jsonErr, string(jsonData))
+		return nil, fmt.Errorf("failed to unmarshal JSON into ReserveDetailsOutput for getReserveDetails: %v. JSON: %s", jsonErr, string(jsonData))
 	}
 
 	if targetStruct.Balance == nil {
@@ -373,6 +325,5 @@ func (s *blockchainServiceImpl) GetReserveDetails(token, wallet string) (*Reserv
 		targetStruct.LastVerified = big.NewInt(0)
 	}
 
-	fmt.Println("DIAGNOSTIC: Successfully converted anonymous struct to ReserveDetailsOutput via JSON.")
 	return &targetStruct, nil
 }

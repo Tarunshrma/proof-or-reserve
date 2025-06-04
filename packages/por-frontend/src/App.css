@@ -53,19 +53,67 @@ body {
   flex-grow: 1;
 }
 
+/* UPDATED Info Tooltip Styles for In-Card Usage */
+.info-tooltip-container.card-info-tooltip { /* Specific to the card */
+  position: absolute; /* Position relative to the card */
+  top: 10px;    /* Adjust as needed for top padding */
+  /* left: 10px; */   /* REMOVED: No longer left-aligned */
+  right: 10px;  /* Align to the right of the card */
+  z-index: 10;  /* Ensure it's above other static card content if needed */
+}
+
+.info-icon { /* Style remains largely the same, ensure it's visible */
+  font-size: 1.1rem;
+  color: #007bff;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 50%;
+  transition: background-color 0.2s ease;
+  display: inline-block; /* Ensures it takes up space */
+}
+
+.info-icon:hover {
+  background-color: #e9ecef;
+}
+
+.info-tooltip-banner { /* Adjusted for in-card display */
+  display: none;
+  position: absolute;
+  top: 100%; /* Position below the icon */
+  /* left: 0; */ /* REMOVED: No longer aligned to left of container */
+  right: 0; /* Align to the right edge of the container (which is now on the right of card) */
+  margin-top: 5px; /* Space between icon and tooltip */
+  background-color: #F6F8FA;
+  color: #24292F;
+  border: 1px solid #D0D7DE;
+  border-radius: 6px;
+  padding: 10px 12px; /* Slightly smaller padding for in-card */
+  box-shadow: 0 3px 6px rgba(0,0,0,0.1);
+  width: 250px; /* Adjust width as needed for card context */
+  font-size: 0.8rem; /* Slightly smaller font for in-card */
+  line-height: 1.4;
+  text-align: left;
+  z-index: 100; /* Ensure tooltip is above other card elements and grid items */
+}
+
+.info-tooltip-container.card-info-tooltip:hover .info-tooltip-banner {
+  display: block;
+}
+
 /* Asset Card Styles */
 .asset-card {
-  background-color: #FFFFFF; /* White card background, like in image */
-  border: 1px solid #D0D7DE; /* Light gray border for cards, like GitHub */
-  border-radius: 6px; /* Standard GitHub border-radius */
-  padding: 15px 20px; /* Reduced top/bottom padding */
-  box-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.08); /* Subtle shadow */
-  width: 300px;  /* Fixed width */
-  height: 350px; /* Increased height */
-  overflow-y: auto; /* Reinstated overflow for content longer than card height */
+  background-color: #FFFFFF; 
+  border: 1px solid #D0D7DE; 
+  border-radius: 6px; 
+  padding: 15px 20px; 
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.08); 
+  width: 300px;  
+  height: 350px; 
+  overflow-y: auto; 
   display: flex; 
   flex-direction: column; 
-  justify-content: space-between; 
+  justify-content: space-between;
+  position: relative; /* Ensure asset-card is a positioning context for the absolute icon tooltip */
 }
 
 .asset-card:hover {

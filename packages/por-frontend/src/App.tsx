@@ -38,15 +38,17 @@ function App() {
       <header className="app-header">
         Proof of Reserve Dashboard
       </header>
-      <main className="assets-grid">
-        {isLoading && <p style={{ textAlign: 'center', fontSize: '1.2rem' }}>Loading asset configurations...</p>}
-        {error && <p style={{ textAlign: 'center', color: 'var(--error-color)', fontSize: '1.2rem' }}>Error: {error}</p>}
-        {!isLoading && !error && assets.length === 0 && (
-          <p style={{ textAlign: 'center', fontSize: '1.2rem' }}>No asset configurations found.</p>
-        )}
-        {!isLoading && !error && assets.map(asset => (
-          <AssetCard key={asset.id} asset={asset} />
-        ))}
+      <main>
+        <div className="assets-grid">
+          {isLoading && <p style={{ textAlign: 'center', fontSize: '1.2rem' }}>Loading asset configurations...</p>}
+          {error && <p style={{ textAlign: 'center', color: 'var(--error-color)', fontSize: '1.2rem' }}>Error: {error}</p>}
+          {!isLoading && !error && assets.length === 0 && (
+            <p style={{ textAlign: 'center', fontSize: '1.2rem' }}>No asset configurations found.</p>
+          )}
+          {!isLoading && !error && assets.map(asset => (
+            <AssetCard key={asset.id} asset={asset} />
+          ))}
+        </div>
       </main>
       <footer className="app-footer">
         <p>&copy; {new Date().getFullYear()} Proof of Reserve System. All rights reserved.</p>

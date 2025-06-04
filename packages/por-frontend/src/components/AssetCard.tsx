@@ -108,6 +108,13 @@ const AssetCard: React.FC<AssetCardProps> = ({ asset }) => {
 
   return (
     <div className="asset-card">
+      <div className="info-tooltip-container card-info-tooltip">
+        <span className="info-icon">ⓘ</span>
+        <div className="info-tooltip-banner">
+          The amount on this webpage may not be updated immediately if there are movements in the wallet. For most accurate data, check the explorer by clicking the arrow on the right.
+        </div>
+      </div>
+
       {/* Moved Status Messages START */}
       {isLoading && <p className="status-message loading">Loading details...</p>}
       {error && !isLoading && <p className="status-message error">Error fetching details: {error}</p>}

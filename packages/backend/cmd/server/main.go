@@ -40,7 +40,7 @@ func main() {
 	}
 
 	// Initialize services
-	blockchainSvc, err := service.NewBlockchainService(cfg.EthereumRPC, cfg.ContractAddress, cfg.AbiFilePath)
+	blockchainSvc, err := service.NewBlockchainService(cfg.EthereumRPC, cfg.ContractAddress, cfg.AbiFilePath, cfg.PrivateKey)
 	if err != nil {
 		log.Fatalf("Failed to create blockchain service: %v", err)
 	}

@@ -9,19 +9,25 @@ import (
 	"strings"
 	"time"
 
+	"crypto/ecdsa"
+
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/core/types"
+	ethcrypto "github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 )
 
 // blockchainServiceImpl is the concrete implementation of the BlockchainService interface.
 type blockchainServiceImpl struct {
-	client         *ethclient.Client
-	contractAddr   common.Address
-	contractABI    abi.ABI
-	defaultTimeout time.Duration
+	client           *ethclient.Client
+	contractAddr     common.Address
+	contractABI      abi.ABI
+	privateKeyString string
+	defaultTimeout   time.Duration
 }
 
 // Struct to help parse the Hardhat artifact JSON
@@ -42,10 +48,19 @@ type ReserveDetailsOutput struct {
 }
 
 // NewBlockchainService creates a new instance of BlockchainService (the interface).
-func NewBlockchainService(rpcURL string, contractAddress string, abiFilePath string) (BlockchainService, error) {
+func NewBlockchainService(rpcURL string, contractAddress string, abiFilePath string, privateKeyHex string) (BlockchainService, error) {
 	client, err := ethclient.Dial(rpcURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to Ethereum client: %v", err)
+	}
+
+	pk := privateKeyHex
+	if strings.HasPrefix(pk, "0x") {
+		pk = pk[2:]
+	}
+	_, err = ethcrypto.HexToECDSA(pk)
+	if err != nil {
+		return nil, fmt.Errorf("invalid private key: %v", err)
 	}
 
 	abiFileBytes, err := ioutil.ReadFile(abiFilePath)
@@ -69,10 +84,11 @@ func NewBlockchainService(rpcURL string, contractAddress string, abiFilePath str
 	}
 
 	return &blockchainServiceImpl{
-		client:         client,
-		contractAddr:   common.HexToAddress(contractAddress),
-		contractABI:    parsedABI,
-		defaultTimeout: 30 * time.Second,
+		client:           client,
+		contractAddr:     common.HexToAddress(contractAddress),
+		contractABI:      parsedABI,
+		privateKeyString: privateKeyHex,
+		defaultTimeout:   30 * time.Second,
 	}, nil
 }
 
@@ -104,68 +120,130 @@ func (s *blockchainServiceImpl) GetReserveBalance(token, wallet string) (*big.In
 	return result, nil
 }
 
-// VerifySignature is a method of blockchainServiceImpl.
+// VerifySignature sends a transaction to the verifyProof method on the smart contract.
 func (s *blockchainServiceImpl) VerifySignature(token, wallet, signature string) (bool, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), s.defaultTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), s.defaultTimeout+30*time.Second) // Increased timeout for tx
 	defer cancel()
 
-	code, err := s.client.CodeAt(ctx, s.contractAddr, nil)
+	// 1. Load Private Key
+	pkHex := s.privateKeyString
+	if strings.HasPrefix(pkHex, "0x") {
+		pkHex = pkHex[2:]
+	}
+	privateKeyECDSA, err := ethcrypto.HexToECDSA(pkHex)
 	if err != nil {
-		return false, fmt.Errorf("failed to check contract code: %v", err)
-	}
-	if len(code) == 0 {
-		return false, fmt.Errorf("no contract found at address %s", s.contractAddr.Hex())
+		return false, fmt.Errorf("failed to parse private key: %v", err)
 	}
 
-	fmt.Printf("\n=== Contract Verification Debug ===\n")
-	fmt.Printf("Contract Address: %s\n", s.contractAddr.Hex())
-	fmt.Printf("Token: %s\n", token)
-	fmt.Printf("Wallet: %s\n", wallet)
-	fmt.Printf("Signature: %s\n", signature)
+	// 2. Derive Public Address from Private Key
+	publicKeyECDSA, ok := privateKeyECDSA.Public().(*ecdsa.PublicKey)
+	if !ok {
+		return false, fmt.Errorf("failed to derive public key")
+	}
+	fromAddress := ethcrypto.PubkeyToAddress(*publicKeyECDSA)
 
-	isActive, err := s.IsReserveWallet(token, wallet)
+	// 3. Get Chain ID
+	chainID, err := s.client.ChainID(ctx)
 	if err != nil {
-		return false, fmt.Errorf("failed to check reserve status: %v", err)
-	}
-	fmt.Printf("Is Reserve Active: %v\n", isActive)
-
-	if !isActive {
-		return false, fmt.Errorf("reserve not active")
+		return false, fmt.Errorf("failed to get chain ID: %v", err)
 	}
 
+	// 4. Create TransactOpts (for gas price, nonce)
+	auth, err := bind.NewKeyedTransactorWithChainID(privateKeyECDSA, chainID)
+	if err != nil {
+		return false, fmt.Errorf("failed to create transactor: %v", err)
+	}
+
+	// 5. Fetch Nonce
+	nonce, err := s.client.PendingNonceAt(ctx, fromAddress)
+	if err != nil {
+		return false, fmt.Errorf("failed to get pending nonce: %v", err)
+	}
+	auth.Nonce = big.NewInt(int64(nonce))
+
+	// 6. Gas Price and Limit
+	gasPrice, err := s.client.SuggestGasPrice(ctx)
+	if err != nil {
+		return false, fmt.Errorf("failed to suggest gas price: %v", err)
+	}
+	auth.GasPrice = gasPrice
+	auth.GasLimit = uint64(300000) // Set a reasonable gas limit for this transaction
+	auth.Value = big.NewInt(0)     // No ETH being sent
+
+	// --- Existing logic for packing data ---
 	tokenAddr := common.HexToAddress(token)
 	walletAddr := common.HexToAddress(wallet)
 	signatureBytes := hexutil.MustDecode(signature)
 
+	// Pack the call to verifyProof
 	data, err := s.contractABI.Pack("verifyProof", tokenAddr, walletAddr, signatureBytes)
 	if err != nil {
-		return false, fmt.Errorf("failed to pack parameters: %v", err)
+		return false, fmt.Errorf("failed to pack parameters for verifyProof: %v", err)
 	}
+	// --- End existing logic ---
 
-	fmt.Printf("\nContract Call Data:\n")
-	fmt.Printf("Method: verifyProof\n")
-	fmt.Printf("Packed Data: %s\n", hexutil.Encode(data))
+	fmt.Printf("\n=== Contract Transaction Debug ===\n")
+	fmt.Printf("From Address: %s\n", fromAddress.Hex())
+	fmt.Printf("Contract Address: %s\n", s.contractAddr.Hex())
+	fmt.Printf("Token: %s, Wallet: %s\n", token, wallet)
+	fmt.Printf("Nonce: %s, GasPrice: %s, GasLimit: %d\n", auth.Nonce.String(), auth.GasPrice.String(), auth.GasLimit)
+	fmt.Printf("Packed Data for verifyProof: %s\n", hexutil.Encode(data))
 
-	callResult, err := s.client.CallContract(ctx, ethereum.CallMsg{
-		To:   &s.contractAddr,
-		Data: data,
-	}, nil)
+	// 7. Create and Sign Transaction
+	tx := types.NewTransaction(auth.Nonce.Uint64(), s.contractAddr, auth.Value, auth.GasLimit, auth.GasPrice, data)
+
+	signedTx, err := types.SignTx(tx, types.NewEIP155Signer(chainID), privateKeyECDSA)
 	if err != nil {
-		return false, fmt.Errorf("contract call failed: %v", err)
+		return false, fmt.Errorf("failed to sign transaction: %v", err)
+	}
+	fmt.Printf("Signed Tx Hash: %s\n", signedTx.Hash().Hex())
+
+	// 8. Send Transaction
+	err = s.client.SendTransaction(ctx, signedTx)
+	if err != nil {
+		return false, fmt.Errorf("failed to send transaction: %v", err)
+	}
+	fmt.Printf("Transaction sent successfully. Waiting for mining...\n")
+
+	// 9. Wait for Mining and Get Receipt
+	receipt, err := bind.WaitMined(ctx, s.client, signedTx)
+	if err != nil {
+		return false, fmt.Errorf("failed to mine transaction: %v", err)
+	}
+	fmt.Printf("Transaction mined. Receipt Status: %d (1=Success, 0=Failure)\n", receipt.Status)
+	fmt.Printf("Transaction Hash: %s, Block Hash: %s, Block Number: %s\n", receipt.TxHash.Hex(), receipt.BlockHash.Hex(), receipt.BlockNumber.String())
+	fmt.Printf("Gas Used: %d\n", receipt.GasUsed)
+
+	// 10. Check Receipt Status
+	if receipt.Status == types.ReceiptStatusFailed {
+		callErr := checkTxFailureReason(s.client, fromAddress, signedTx, receipt.BlockNumber)
+		return false, fmt.Errorf("transaction failed on-chain (receipt status 0). Revert reason: %v", callErr)
 	}
 
-	fmt.Printf("Contract Call Result: %s\n", hexutil.Encode(callResult))
+	fmt.Printf("=== End Transaction Debug ===\n\n")
 
-	var success bool
-	if err := s.contractABI.UnpackIntoInterface(&success, "verifyProof", callResult); err != nil {
-		fmt.Printf("Error unpacking verifyProof result: %v. Raw result: %s\n", err, hexutil.Encode(callResult))
-		return false, fmt.Errorf("failed to unpack verifyProof result: %v", err)
+	return true, nil
+}
+
+// Helper function to try and get a revert reason
+func checkTxFailureReason(client *ethclient.Client, from common.Address, tx *types.Transaction, blockNumber *big.Int) error {
+	msg := ethereum.CallMsg{
+		From:     from,
+		To:       tx.To(),
+		Gas:      tx.Gas(),
+		GasPrice: tx.GasPrice(),
+		Value:    tx.Value(),
+		Data:     tx.Data(),
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
-	fmt.Printf("Verification Result: %v\n", success)
-	fmt.Printf("=== End Debug ===\n\n")
-
-	return success, nil
+	res, callErr := client.CallContract(ctx, msg, blockNumber)
+	if callErr == nil {
+		return fmt.Errorf("revert reason in response: %s", string(res))
+	}
+	// If CallContract errors, the error message itself might contain the revert reason.
+	return fmt.Errorf("call to check revert reason failed: %w (raw call output: %s)", callErr, string(res))
 }
 
 // IsReserveWallet is a method of blockchainServiceImpl.

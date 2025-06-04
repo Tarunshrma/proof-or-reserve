@@ -1,6 +1,15 @@
-import type { ReserveDetailsResponse, VerificationResult } from '../types';
+import type { ReserveDetailsResponse, VerificationResult, AssetConfig } from '../types';
 
-const API_BASE_URL = 'http://localhost:8082'; // As confirmed by the user
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8082';
+
+export async function getConfiguredAssets(): Promise<AssetConfig[]> {
+  const response = await fetch(`${API_BASE_URL}/assets/configured`);
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ message: 'Failed to fetch configured assets and parse error response' }));
+    throw new Error(errorData.message || `Failed to fetch configured assets: ${response.statusText}`);
+  }
+  return response.json();
+}
 
 export async function getReserveDetails(
   tokenAddress: string,

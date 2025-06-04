@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import type { AssetConfig, ReserveDetailsOutput, VerificationResult } from '../types';
 import { getReserveDetails, initiateOnchainVerification } from '../services/api';
 
@@ -14,27 +14,27 @@ const AssetCard: React.FC<AssetCardProps> = ({ asset }) => {
   const [verificationStatus, setVerificationStatus] = useState<{ success: boolean; message: string; signature?: string } | null>(null);
   const [verificationError, setVerificationError] = useState<string | null>(null);
 
-  useEffect(() => {
-    const fetchDetails = async () => {
-      try {
-        setIsLoading(true);
-        setError(null);
-        const data = await getReserveDetails(asset.tokenAddress, asset.walletAddress);
-        setDetails(data);
-      } catch (err) {
-        if (err instanceof Error) {
-          setError(err.message);
-        } else {
-          setError('An unknown error occurred while fetching details.');
-        }
-        console.error(`Error fetching details for ${asset.displayName}:`, err);
-      } finally {
-        setIsLoading(false);
+  const fetchAssetDetails = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      const data = await getReserveDetails(asset.tokenAddress, asset.walletAddress);
+      setDetails(data);
+    } catch (err) {
+      if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError('An unknown error occurred while fetching details.');
       }
-    };
-
-    fetchDetails();
+      console.error(`Error fetching details for ${asset.displayName}:`, err);
+    } finally {
+      setIsLoading(false);
+    }
   }, [asset.tokenAddress, asset.walletAddress, asset.displayName]);
+
+  useEffect(() => {
+    fetchAssetDetails();
+  }, [fetchAssetDetails]);
 
   const handleVerify = async () => {
     try {
@@ -47,6 +47,13 @@ const AssetCard: React.FC<AssetCardProps> = ({ asset }) => {
         message: result.message || (result.onChainSuccess ? 'Verification Successful' : 'Verification Failed'),
         signature: result.signatureUsed,
       });
+
+      if (result.onChainSuccess) {
+        // Add a small delay before re-fetching to allow blockchain state to propagate
+        setTimeout(() => {
+          fetchAssetDetails();
+        }, 2000); // 2-second delay
+      }
     } catch (err) {
       let errorMessage = 'An unknown error occurred during verification.';
       if (err instanceof Error) {
@@ -100,8 +107,8 @@ const AssetCard: React.FC<AssetCardProps> = ({ asset }) => {
         </>
       )}
 
-      <button onClick={handleVerify} disabled={isVerifying || !details?.isConfigured}>
-        {isVerifying ? 'Verifying...' : (details?.isConfigured === false ? 'Not Configured' : 'Verify On-Chain')}
+      <button onClick={handleVerify} disabled={isVerifying || !details?.isConfigured || isLoading}>
+        {isVerifying ? 'Verifying...' : (details?.isConfigured === false ? 'Not Configured' : (isLoading ? 'Loading Data...' : 'Verify On-Chain'))}
       </button>
 
       {verificationStatus && (
@@ -110,7 +117,7 @@ const AssetCard: React.FC<AssetCardProps> = ({ asset }) => {
           {verificationStatus.signature && <p style={{ fontSize: '0.75rem', wordBreak: 'break-all' }}><strong>Signature:</strong> {verificationStatus.signature}</p>}
         </div>
       )}
-      {verificationError && !verificationStatus && ( // Show generic error if verificationStatus isn't set by catch block
+      {verificationError && !verificationStatus && (
          <p className="status-message error">Verification Failed: {verificationError}</p>
       )}
        {!isLoading && details && !details.isConfigured && (

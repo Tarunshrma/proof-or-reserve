@@ -6,6 +6,13 @@ interface AssetCardProps {
   asset: AssetConfig;
 }
 
+// Helper function to truncate a string (e.g., Ethereum address or signature)
+const truncateString = (str: string | undefined, startChars: number, endChars: number): string => {
+  if (!str) return 'N/A';
+  if (str.length <= startChars + endChars + 3) return str; // Don't truncate if it's already short
+  return `${str.substring(0, startChars)}...${str.substring(str.length - endChars)}`;
+};
+
 const AssetCard: React.FC<AssetCardProps> = ({ asset }) => {
   const [details, setDetails] = useState<ReserveDetailsOutput | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -36,6 +43,19 @@ const AssetCard: React.FC<AssetCardProps> = ({ asset }) => {
     fetchAssetDetails();
   }, [fetchAssetDetails]);
 
+  // useEffect to auto-hide success messages
+  useEffect(() => {
+    let timer: NodeJS.Timeout;
+    if (verificationStatus && verificationStatus.success) {
+      timer = setTimeout(() => {
+        setVerificationStatus(null);
+      }, 4000); // Auto-hide after 4 seconds
+    }
+    return () => {
+      clearTimeout(timer); // Cleanup timer on component unmount or if status changes
+    };
+  }, [verificationStatus]);
+
   const handleVerify = async () => {
     try {
       setIsVerifying(true);
@@ -49,10 +69,9 @@ const AssetCard: React.FC<AssetCardProps> = ({ asset }) => {
       });
 
       if (result.onChainSuccess) {
-        // Add a small delay before re-fetching to allow blockchain state to propagate
         setTimeout(() => {
           fetchAssetDetails();
-        }, 2000); // 2-second delay
+        }, 2000);
       }
     } catch (err) {
       let errorMessage = 'An unknown error occurred during verification.';
@@ -89,32 +108,12 @@ const AssetCard: React.FC<AssetCardProps> = ({ asset }) => {
 
   return (
     <div className="asset-card">
-      <h3>
-        {asset.logoUrl && <img src={asset.logoUrl} alt={`${asset.displayName} logo`} style={{ width: '24px', height: '24px', marginRight: '8px', verticalAlign: 'middle' }} />}
-        {asset.displayName}
-      </h3>
-
+      {/* Moved Status Messages START */}
       {isLoading && <p className="status-message loading">Loading details...</p>}
-      {error && !isLoading && <p className="status-message error">Error: {error}</p>}
-      
-      {details && !isLoading && (
-        <>
-          <p><strong>Symbol:</strong> {details.symbol || 'N/A'}</p>
-          <p><strong>Balance:</strong> {formatBalance(details.balance)}</p>
-          <p className="token-address"><strong>Token Address:</strong> {asset.tokenAddress}</p>
-          <p className="wallet-address"><strong>Wallet Address:</strong> {asset.walletAddress}</p>
-          <p><strong>Last Verified:</strong> {formatTimestamp(details.lastVerified)}</p>
-        </>
-      )}
-
-      <button onClick={handleVerify} disabled={isVerifying || !details?.isConfigured || isLoading}>
-        {isVerifying ? 'Verifying...' : (details?.isConfigured === false ? 'Not Configured' : (isLoading ? 'Loading Data...' : 'Verify On-Chain'))}
-      </button>
-
+      {error && !isLoading && <p className="status-message error">Error fetching details: {error}</p>}
       {verificationStatus && (
         <div className={`status-message ${verificationStatus.success ? 'success' : 'error'}`}>
           <p>{verificationStatus.message}</p>
-          {verificationStatus.signature && <p style={{ fontSize: '0.75rem', wordBreak: 'break-all' }}><strong>Signature:</strong> {verificationStatus.signature}</p>}
         </div>
       )}
       {verificationError && !verificationStatus && (
@@ -125,6 +124,26 @@ const AssetCard: React.FC<AssetCardProps> = ({ asset }) => {
           This asset configuration is not found or not active in the smart contract.
         </p>
       )}
+      {/* Moved Status Messages END */}
+
+      <h3>
+        {asset.logoUrl && <img src={asset.logoUrl} alt={`${asset.displayName} logo`} style={{ width: '24px', height: '24px', marginRight: '8px', verticalAlign: 'middle' }} />}
+        {asset.displayName}
+      </h3>
+
+      {details && !isLoading && (
+        <>
+          <p><strong>Symbol:</strong> {details.symbol || 'N/A'}</p>
+          <p><strong>Balance:</strong> {formatBalance(details.balance)}</p>
+          <p className="token-address"><strong>Token Address:</strong> {truncateString(asset.tokenAddress, 6, 4)}</p>
+          <p className="wallet-address"><strong>Wallet Address:</strong> {truncateString(asset.walletAddress, 6, 4)}</p>
+          <p><strong>Last Verified:</strong> {formatTimestamp(details.lastVerified)}</p>
+        </>
+      )}
+
+      <button onClick={handleVerify} disabled={isVerifying || !details?.isConfigured || isLoading}>
+        {isVerifying ? 'Verifying...' : (details?.isConfigured === false ? 'Not Configured' : (isLoading ? 'Loading Data...' : 'Verify On-Chain'))}
+      </button>
     </div>
   );
 };

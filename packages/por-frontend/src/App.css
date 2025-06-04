@@ -17,8 +17,8 @@ body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background-color: #0D1117; /* Dark background like tradefi.network */
-  color: #C9D1D9; /* Light text color */
+  background-color: #FFFFFF; /* White background for the body */
+  color: #24292F; /* Darker default text color for light background */
   line-height: 1.6;
 }
 
@@ -26,93 +26,103 @@ body {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
+  background-color: #F6F8FA; /* Light gray for the area outside explicit sections, like GitHub */
 }
 
 /* Header Styles */
 .app-header {
-  background-color: #161B22; /* Slightly lighter dark for header */
+  background-color: #FFFFFF; /* White background for header */
   padding: 20px 40px;
   text-align: center;
   font-size: 2rem;
   font-weight: bold;
-  color: #58A6FF; /* Blue accent for header text */
-  border-bottom: 1px solid #30363D; /* Subtle border */
-  margin-bottom: 30px;
+  color: #24292F; /* Dark text for header */
+  border-bottom: 1px solid #D0D7DE; /* Light gray border, same as cards */
+  margin-bottom: 0; /* Remove bottom margin to connect with white main area */
 }
 
 /* Main Content Grid */
 .assets-grid {
+  background-color: #FFFFFF; /* White background for the main content grid */
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
-  gap: 25px;
-  padding: 20px 40px;
+  grid-template-columns: repeat(auto-fit, 300px); /* Aim for fixed width cards */
+  /* justify-content: flex-start; */ /* Align grid items to the start (left) - Commented out for testing gap */
+  row-gap: 30px;
+  column-gap: 60px; /* Increased column-gap for testing */
+  padding: 30px 40px;
   flex-grow: 1;
 }
 
 /* Asset Card Styles */
 .asset-card {
-  background-color: #161B22; /* Card background */
-  border: 1px solid #30363D; /* Card border */
-  border-radius: 8px;
-  padding: 25px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-  transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
+  background-color: #FFFFFF; /* White card background, like in image */
+  border: 1px solid #D0D7DE; /* Light gray border for cards, like GitHub */
+  border-radius: 6px; /* Standard GitHub border-radius */
+  padding: 15px 20px; /* Reduced top/bottom padding */
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.08); /* Subtle shadow */
+  width: 300px;  /* Fixed width */
+  height: 350px; /* Increased height */
+  overflow-y: auto; /* Reinstated overflow for content longer than card height */
+  display: flex; 
+  flex-direction: column; 
+  justify-content: space-between; 
 }
 
 .asset-card:hover {
-  transform: translateY(-5px);
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
+  border-color: #AEB6C0;
+  box-shadow: 0 3px 6px rgba(0,0,0,0.06), 0 3px 6px rgba(0,0,0,0.12);
 }
 
 .asset-card h3 {
   margin-top: 0;
   margin-bottom: 15px;
-  color: #58A6FF; /* Blue accent for card titles */
-  font-size: 1.5rem;
-  border-bottom: 1px solid #30363D;
+  color: #24292F; /* Dark text for card titles */
+  font-size: 1.25rem; /* Slightly smaller title to fit cards */
+  border-bottom: 1px solid #D0D7DE;
   padding-bottom: 10px;
 }
 
 .asset-card p {
   margin: 8px 0;
-  font-size: 0.95rem;
-  line-height: 1.6;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: #57606A; /* Medium-dark gray for card text */
 }
 
 .asset-card p strong {
-  color: #8B949E; /* Slightly muted strong text */
+  color: #24292F; /* Darker strong text */
   margin-right: 5px;
 }
 
 .asset-card .token-address,
 .asset-card .wallet-address {
-  font-family: 'Courier New', Courier, monospace;
-  font-size: 0.85rem;
-  color: #8B949E;
+  /* font-family: 'Courier New', Courier, monospace; Commenting out to use card's default font */
+  font-size: 0.8rem;
+  color: #656D76; /* Lighter gray for addresses */
   word-break: break-all;
+  margin-top: 4px;
+  margin-bottom: 4px;
 }
 
 .asset-card button {
-  background-color: #238636; /* Green button like on tradefi.network */
+  background-color: #DA292E; /* Prominent Red accent from image (e.g. Get More XDC button) */
   color: white;
   border: none;
-  padding: 12px 20px;
+  padding: 10px 16px; /* Slightly smaller padding */
   text-align: center;
   text-decoration: none;
   display: inline-block;
-  font-size: 1rem;
+  font-size: 0.9rem; /* Slightly smaller font */
   font-weight: bold;
-  margin-top: 20px;
+  margin-top: 10px; /* Slightly reduced margin-top for button */
   cursor: pointer;
   border-radius: 6px;
   transition: background-color 0.2s ease, transform 0.1s ease;
+  width: 100%; /* Make button full width of card padding */
 }
 
 .asset-card button:hover {
-  background-color: #2DA042; /* Lighter green on hover */
+  background-color: #C02428; /* Slightly darker red on hover */
 }
 
 .asset-card button:active {
@@ -120,45 +130,45 @@ body {
 }
 
 .asset-card button:disabled {
-  background-color: #30363D;
-  color: #8B949E;
+  background-color: #E1E4E8; /* Lighter gray for disabled button on light bg */
+  color: #8C959F; /* Dimmer text for disabled button */
   cursor: not-allowed;
 }
 
 /* Status Messages */
 .status-message {
-  margin-top: 15px;
-  padding: 10px;
-  border-radius: 4px;
-  font-size: 0.9rem;
+  margin-top: 8px; /* Reduced margin-top */
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 0.85rem;
 }
 
 .status-message.success {
-  background-color: rgba(35, 134, 54, 0.2); /* Green success with transparency */
-  color: #3FB950;
-  border: 1px solid #238636;
+  background-color: #DDFFDD; /* Light green background */
+  color: #215B23; /* Dark green text */
+  border: 1px solid #AADDAA;
 }
 
 .status-message.error {
-  background-color: rgba(248, 81, 73, 0.2); /* Red error with transparency */
-  color: #F85149;
-  border: 1px solid #DA3633;
+  background-color: #FFDDDD; /* Light red background */
+  color: #A31616; /* Dark red text */
+  border: 1px solid #EEAAAA;
 }
 
 .status-message.loading {
-  background-color: rgba(56, 139, 253, 0.2); /* Blue loading with transparency */
-  color: #58A6FF;
-  border: 1px solid #1F6FEB;
+  background-color: #DDEDFF; /* Light blue background */
+  color: #004085; /* Dark blue text */
+  border: 1px solid #AACCFF;
 }
 
 /* Footer Styles */
 .app-footer {
-  background-color: #161B22;
+  background-color: #FFFFFF; /* White background, same as header */
   padding: 20px 40px;
   text-align: center;
   font-size: 0.85rem;
-  color: #8B949E; /* Muted footer text */
-  border-top: 1px solid #30363D;
+  color: #57606A; /* Medium-dark gray, same as card text */
+  border-top: 1px solid #D0D7DE; /* Light gray border, same as card borders */
   margin-top: auto; /* Pushes footer to the bottom */
 }
 

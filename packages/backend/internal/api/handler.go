@@ -194,13 +194,21 @@ func (h *Handler) InitiateOnchainVerification(c *gin.Context) {
 	// 5. Optionally, retrieve updated details after verification to include in response
 	// For simplicity, we'll just return the verification status and signature.
 	// The frontend can re-fetch details if needed.
+
+	var message string
+	if onChainSuccess {
+		message = "On-chain verification successful."
+	} else {
+		message = "On-chain verification failed."
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"token":                 req.Token,
 		"wallet":                req.Wallet,
 		"verificationInitiated": true,
 		"onChainSuccess":        onChainSuccess,
 		"signatureUsed":         sigRecord.Signature,
-		"message":               "On-chain verification attempted.",
+		"message":               message,
 	})
 }
 

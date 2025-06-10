@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"bytes"
+
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
@@ -326,4 +328,61 @@ func (s *blockchainServiceImpl) GetReserveDetails(token, wallet string) (*Reserv
 	}
 
 	return &targetStruct, nil
+}
+
+// GetChainID returns the current chain ID
+func (s *blockchainServiceImpl) GetChainID() (*big.Int, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), s.defaultTimeout)
+	defer cancel()
+	return s.client.ChainID(ctx)
+}
+
+// GetContractAddress returns the contract address
+func (s *blockchainServiceImpl) GetContractAddress() string {
+	return s.contractAddr.Hex()
+}
+
+// VerifySignatureOffchain verifies a signature without submitting a transaction
+func (s *blockchainServiceImpl) VerifySignatureOffchain(token, wallet, signature, payload string) (bool, error) {
+	// 1. Verify the payload format matches what we expect
+	tokenAddr := common.HexToAddress(token)
+	walletAddr := common.HexToAddress(wallet)
+
+	// Reconstruct the expected payload
+	prefix := []byte("ProofOfReserve:")
+	expectedPayload := append(prefix, tokenAddr.Bytes()...)
+	expectedPayload = append(expectedPayload, walletAddr.Bytes()...)
+
+	// Convert the provided payload from hex to bytes
+	providedPayload := common.FromHex(payload)
+	if !bytes.Equal(expectedPayload, providedPayload) {
+		return false, fmt.Errorf("payload mismatch")
+	}
+
+	// 2. Get the signer's address from the signature
+	sig := common.FromHex(signature)
+	if len(sig) != 65 {
+		return false, fmt.Errorf("invalid signature length")
+	}
+
+	// Construct the message hash as done in the contract
+	messageHash := ethcrypto.Keccak256(expectedPayload)
+
+	// Construct the Ethereum signed message hash
+	ethSignedMessageHash := ethcrypto.Keccak256(
+		[]byte(fmt.Sprintf("\x19Ethereum Signed Message:\n%d", len(messageHash))),
+		messageHash,
+	)
+
+	// Recover the signer's public key
+	pubKey, err := ethcrypto.Ecrecover(ethSignedMessageHash, sig)
+	if err != nil {
+		return false, fmt.Errorf("failed to recover public key: %v", err)
+	}
+
+	// Convert public key to address
+	recoveredAddr := common.BytesToAddress(ethcrypto.Keccak256(pubKey[1:])[12:])
+
+	// Compare with the wallet address
+	return recoveredAddr == walletAddr, nil
 }

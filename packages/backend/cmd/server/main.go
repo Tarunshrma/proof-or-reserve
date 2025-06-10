@@ -71,7 +71,13 @@ func main() {
 	// Register routes
 	r.GET("/assets/configured", handler.GetConfiguredAssets) // New route for serving static asset configurations
 
-	// New routes for frontend integration
+	// Contract configuration
+	r.GET("/contract/config", handler.GetContractConfig)
+
+	// Signature management
+	r.POST("/signature/submit", handler.SubmitSignature)
+
+	// Reserve details and verification
 	r.GET("/reserve-details/:token/:wallet", handler.GetReserveDetails)
 	r.POST("/initiate-onchain-verification", handler.InitiateOnchainVerification)
 

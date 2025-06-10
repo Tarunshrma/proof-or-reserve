@@ -5,6 +5,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/Tarunshrma/proof-or-reserve/internal/config"
 	"github.com/Tarunshrma/proof-or-reserve/internal/service"
@@ -329,4 +330,73 @@ func (h *Handler) GetConfiguredAssets(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, assets)
+}
+
+// GetContractConfig returns the contract address and chain ID
+func (h *Handler) GetContractConfig(c *gin.Context) {
+	chainID, err := h.blockchain.GetChainID()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get chain ID"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"address": h.blockchain.GetContractAddress(),
+		"chainId": chainID,
+	})
+}
+
+// SubmitSignature handles signature submission from the frontend
+func (h *Handler) SubmitSignature(c *gin.Context) {
+	var req struct {
+		Token     string `json:"token" binding:"required"`
+		Wallet    string `json:"wallet" binding:"required"`
+		Signature string `json:"signature" binding:"required"`
+		Payload   string `json:"payload" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload: " + err.Error()})
+		return
+	}
+
+	if !common.IsHexAddress(req.Token) || !common.IsHexAddress(req.Wallet) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid token or wallet address"})
+		return
+	}
+
+	// 1. Verify this is a reserve wallet
+	isReserve, err := h.blockchain.IsReserveWallet(req.Token, req.Wallet)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check reserve status: " + err.Error()})
+		return
+	}
+	if !isReserve {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Not a configured reserve wallet"})
+		return
+	}
+
+	// 2. Verify the signature is valid for the payload and matches the wallet
+	isValid, err := h.blockchain.VerifySignatureOffchain(req.Token, req.Wallet, req.Signature, req.Payload)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify signature: " + err.Error()})
+		return
+	}
+	if !isValid {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid signature"})
+		return
+	}
+
+	// 3. Store the signature
+	if err := h.signatureStore.SaveSignature(&storage.SignatureRecord{
+		Token:       req.Token,
+		Wallet:      req.Wallet,
+		Signature:   req.Signature,
+		GeneratedAt: time.Now(),
+	}); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to store signature: " + err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Signature submitted successfully"})
 }

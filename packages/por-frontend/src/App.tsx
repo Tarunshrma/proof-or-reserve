@@ -4,11 +4,14 @@ import './App.css';
 import AssetCard from './components/AssetCard';
 import { getConfiguredAssets } from './services/api';
 import type { AssetConfig } from './types'; // Import AssetConfig type
+import { WalletConnect } from './components/WalletConnect';
+import { useWallet } from './hooks/useWallet';
 
-function App() {
+const App: React.FC = () => {
   const [assets, setAssets] = useState<AssetConfig[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const { isConnected } = useWallet();
 
   useEffect(() => {
     const loadAssets = async () => {
@@ -34,10 +37,14 @@ function App() {
   }, []);
 
   return (
-    <>
-      <header className="app-header">
-        Proof of Reserve Dashboard
+    <div className="app">
+      <header>
+        <div className="header-content">
+          <h1>Proof of Reserve</h1>
+          <WalletConnect />
+        </div>
       </header>
+
       <main>
         <div className="assets-grid">
           {isLoading && <p style={{ textAlign: 'center', fontSize: '1.2rem' }}>Loading asset configurations...</p>}
@@ -50,11 +57,12 @@ function App() {
           ))}
         </div>
       </main>
+
       <footer className="app-footer">
         <p>&copy; {new Date().getFullYear()} Proof of Reserve System. All rights reserved.</p>
       </footer>
-    </>
+    </div>
   );
-}
+};
 
 export default App;

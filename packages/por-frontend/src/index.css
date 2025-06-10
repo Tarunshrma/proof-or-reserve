@@ -66,3 +66,94 @@ button:focus-visible {
     background-color: #f9f9f9;
   }
 }
+
+/* Wallet Connect Styles */
+.wallet-connect {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.5rem;
+}
+
+.connect-button,
+.disconnect-button,
+.sign-button {
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  border: none;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.connect-button {
+  background-color: #4CAF50;
+  color: white;
+}
+
+.disconnect-button {
+  background-color: #f44336;
+  color: white;
+}
+
+.sign-button {
+  background-color: #2196F3;
+  color: white;
+}
+
+.connect-button:disabled,
+.disconnect-button:disabled,
+.sign-button:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.wallet-info {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.address {
+  font-family: monospace;
+  padding: 0.25rem 0.5rem;
+  background-color: #f5f5f5;
+  border-radius: 0.25rem;
+}
+
+.chain {
+  font-size: 0.875rem;
+  color: #666;
+}
+
+/* Reserve Actions Styles */
+.reserve-actions {
+  margin: 2rem 0;
+  padding: 1.5rem;
+  border: 1px solid #ddd;
+  border-radius: 0.5rem;
+  background-color: #f9f9f9;
+}
+
+.reserve-actions h3 {
+  margin: 0 0 1rem 0;
+  color: #333;
+}
+
+.reserve-actions .info {
+  margin-bottom: 1rem;
+}
+
+.reserve-actions .info p {
+  margin: 0.5rem 0;
+  font-family: monospace;
+}
+
+/* Error Message Styles */
+.error-message {
+  color: #f44336;
+  padding: 0.5rem;
+  margin: 0.5rem 0;
+  border-radius: 0.25rem;
+  background-color: #ffebee;
+}

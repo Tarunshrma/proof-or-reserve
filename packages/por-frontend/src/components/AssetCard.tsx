@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { ethers, utils } from 'ethers';
 import type { AssetConfig, ReserveDetailsOutput, VerificationResult } from '../types';
-import { getReserveDetails, initiateOnchainVerification } from '../services/api';
+import { getReserveDetails, initiateOnchainVerification, submitSignature } from '../services/api';
+import { useWallet } from '../hooks/useWallet';
 
 interface AssetCardProps {
   asset: AssetConfig;
@@ -14,12 +16,70 @@ const truncateString = (str: string | undefined, startChars: number, endChars: n
 };
 
 const AssetCard: React.FC<AssetCardProps> = ({ asset }) => {
+  const { account } = useWallet();
   const [details, setDetails] = useState<ReserveDetailsOutput | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [isVerifying, setIsVerifying] = useState<boolean>(false);
+  const [isSigningAndSubmitting, setIsSigningAndSubmitting] = useState<boolean>(false);
   const [verificationStatus, setVerificationStatus] = useState<{ success: boolean; message: string; signature?: string } | null>(null);
   const [verificationError, setVerificationError] = useState<string | null>(null);
+
+  const isReserveWallet = account?.toLowerCase() === asset.walletAddress.toLowerCase();
+
+  const generatePayload = (token: string, wallet: string): string => {
+    const prefix = utils.toUtf8Bytes('ProofOfReserve:');
+    const tokenAddr = utils.getAddress(token);
+    const walletAddr = utils.getAddress(wallet);
+    
+    const payload = utils.concat([
+      prefix,
+      utils.arrayify(tokenAddr),
+      utils.arrayify(walletAddr)
+    ]);
+
+    return utils.hexlify(payload);
+  };
+
+  const handleSignAndSubmit = async () => {
+    if (!window.ethereum || !isReserveWallet) return;
+
+    setIsSigningAndSubmitting(true);
+    setVerificationError(null);
+
+    try {
+      // Generate payload
+      const payload = generatePayload(asset.tokenAddress, asset.walletAddress);
+
+      // Sign with MetaMask
+      const provider = new ethers.providers.Web3Provider(window.ethereum);
+      const signer = provider.getSigner();
+      const signature = await signer.signMessage(utils.arrayify(payload));
+
+      // Submit to backend
+      await submitSignature({
+        token: asset.tokenAddress,
+        wallet: asset.walletAddress,
+        signature,
+        payload,
+      });
+
+      setVerificationStatus({
+        success: true,
+        message: 'Signature submitted successfully',
+      });
+
+      // Refresh details after successful submission
+      setTimeout(() => {
+        fetchAssetDetails();
+      }, 2000);
+    } catch (err) {
+      console.error('Error signing and submitting:', err);
+      setVerificationError(err instanceof Error ? err.message : 'Failed to sign and submit');
+    } finally {
+      setIsSigningAndSubmitting(false);
+    }
+  };
 
   const fetchAssetDetails = useCallback(async () => {
     try {
@@ -43,16 +103,16 @@ const AssetCard: React.FC<AssetCardProps> = ({ asset }) => {
     fetchAssetDetails();
   }, [fetchAssetDetails]);
 
-  // useEffect to auto-hide success messages
+  // Auto-hide success messages
   useEffect(() => {
     let timer: NodeJS.Timeout;
     if (verificationStatus && verificationStatus.success) {
       timer = setTimeout(() => {
         setVerificationStatus(null);
-      }, 4000); // Auto-hide after 4 seconds
+      }, 4000);
     }
     return () => {
-      clearTimeout(timer); // Cleanup timer on component unmount or if status changes
+      clearTimeout(timer);
     };
   }, [verificationStatus]);
 
@@ -115,7 +175,7 @@ const AssetCard: React.FC<AssetCardProps> = ({ asset }) => {
         </div>
       </div>
 
-      {/* Moved Status Messages START */}
+      {/* Status Messages */}
       {isLoading && <p className="status-message loading">Loading details...</p>}
       {error && !isLoading && <p className="status-message error">Error fetching details: {error}</p>}
       {verificationStatus && (
@@ -126,12 +186,11 @@ const AssetCard: React.FC<AssetCardProps> = ({ asset }) => {
       {verificationError && !verificationStatus && (
          <p className="status-message error">Verification Failed: {verificationError}</p>
       )}
-       {!isLoading && details && !details.isConfigured && (
+      {!isLoading && details && !details.isConfigured && (
         <p className="status-message error" style={{marginTop: '10px'}}>
           This asset configuration is not found or not active in the smart contract.
         </p>
       )}
-      {/* Moved Status Messages END */}
 
       <h3>
         {asset.logoUrl && <img src={asset.logoUrl} alt={`${asset.displayName} logo`} style={{ width: '24px', height: '24px', marginRight: '8px', verticalAlign: 'middle' }} />}
@@ -145,12 +204,30 @@ const AssetCard: React.FC<AssetCardProps> = ({ asset }) => {
           <p className="token-address"><strong>Token Address:</strong> {truncateString(asset.tokenAddress, 6, 4)}</p>
           <p className="wallet-address"><strong>Wallet Address:</strong> {truncateString(asset.walletAddress, 6, 4)}</p>
           <p><strong>Last Verified:</strong> {formatTimestamp(details.lastVerified)}</p>
+
+          <div className="action-buttons">
+            {/* Verify button */}
+            <button 
+              onClick={handleVerify} 
+              disabled={isVerifying || !details?.isConfigured || isLoading}
+              className="verify-button"
+            >
+              {isVerifying ? 'Verifying...' : (details?.isConfigured === false ? 'Not Configured' : (isLoading ? 'Loading Data...' : 'Verify On-Chain'))}
+            </button>
+
+            {/* Sign & Submit button - only shown if this is the reserve wallet */}
+            {isReserveWallet && details.isConfigured && (
+              <button
+                onClick={handleSignAndSubmit}
+                disabled={isSigningAndSubmitting}
+                className="sign-button"
+              >
+                {isSigningAndSubmitting ? 'Submitting...' : 'Update Signature'}
+              </button>
+            )}
+          </div>
         </>
       )}
-
-      <button onClick={handleVerify} disabled={isVerifying || !details?.isConfigured || isLoading}>
-        {isVerifying ? 'Verifying...' : (details?.isConfigured === false ? 'Not Configured' : (isLoading ? 'Loading Data...' : 'Verify On-Chain'))}
-      </button>
     </div>
   );
 };

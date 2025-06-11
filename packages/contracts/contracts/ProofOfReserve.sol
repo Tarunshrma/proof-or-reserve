@@ -12,6 +12,8 @@ interface IERC20 {
  * @notice A minimal contract to manage and verify proof of reserves for tokens and wallets
  */
 contract ProofOfReserve {
+
+    
     // State variables
     address public owner;
     mapping(address => mapping(address => bool)) public isReserveWallet;    // token => wallet => isActive
@@ -63,14 +65,13 @@ contract ProofOfReserve {
 
     /**
      * @notice Configure a new reserve wallet (one-time setup)
-     * @param token The ERC20 token address
+     * @param token The ERC20 token address, or address(0) for native XDC token
      * @param wallet The wallet address holding the reserves
      */
     function configureReserve(
         address token,
         address wallet
     ) external onlyOwner {
-        require(token != address(0), "Invalid token address");
         require(wallet != address(0), "Invalid wallet address");
         
         isReserveWallet[token][wallet] = true;
@@ -90,12 +91,16 @@ contract ProofOfReserve {
 
     /**
      * @notice Get the current balance of a reserve wallet
-     * @param token The ERC20 token address
+     * @param token The ERC20 token address, or address(0) for the native chain token (e.g., XDC)
      * @param wallet The reserve wallet address
      */
     function getReserveBalance(address token, address wallet) external view returns (uint256) {
         require(isReserveWallet[token][wallet], "Reserve not active");
-        return IERC20(token).balanceOf(wallet);
+        if (token == address(0)) {
+            return wallet.balance;
+        } else {
+            return IERC20(token).balanceOf(wallet);
+        }
     }
 
     /**
@@ -186,7 +191,7 @@ contract ProofOfReserve {
 
     /**
      * @notice Get comprehensive details for a specific reserve
-     * @param token The ERC20 token address
+     * @param token The ERC20 token address, or address(0) for the native chain token (e.g., XDC)
      * @param wallet The reserve wallet address
      * @return details The ReserveDetails struct
      */
@@ -201,11 +206,13 @@ contract ProofOfReserve {
         uint256 verifiedTime = 0;
 
         if (configured) {
-            if (token != address(0)) {
-                // It's good practice to wrap these calls in a try/catch if they might revert,
-                // but for a view function, letting it revert is often acceptable if token is not ERC20 compliant.
-                // However, a simple frontend might prefer empty strings over a full revert.
-                // For simplicity here, we'll assume valid ERC20 or accept reverts.
+            if (token == address(0)) {
+                // Handle native chain token (e.g., XDC)
+                tokenName = "XinFin XDC"; // Or a generic name like "Native Token"
+                tokenSymbol = "XDC";      // Or the chain's native symbol
+                bal = wallet.balance;
+            } else if (token != address(0)) { // Explicitly check for non-zero address for ERC20
+                // Handle ERC20 token
                 IERC20 tokenContract = IERC20(token);
                 try tokenContract.name() returns (string memory _name) {
                     tokenName = _name;

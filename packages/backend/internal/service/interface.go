@@ -15,10 +15,12 @@ type BlockchainService interface {
 	GetChainID() (*big.Int, error)
 	GetContractAddress() string
 	VerifySignatureOffchain(token, wallet, signature, payload string) (bool, error)
+	SetPrivateKey(privateKeyHex string) error
 }
 
 // SignatureService defines the interface for signature operations
 type SignatureService interface {
-	GenerateSignature(token, wallet string) error
+	StoreSignature(token, wallet, signature string, validUntil uint64) error
 	GetSignature(token, wallet string) (*storage.SignatureRecord, error)
+	IsSignatureValid(token, wallet string) (bool, uint64, error)
 }

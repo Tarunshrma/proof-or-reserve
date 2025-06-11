@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"net/http"
+	"os"
 
 	// "os" // No longer needed if using config.Load() fully
 
@@ -40,15 +41,22 @@ func main() {
 	}
 
 	// Initialize services
-	blockchainSvc, err := service.NewBlockchainService(cfg.EthereumRPC, cfg.ContractAddress, cfg.AbiFilePath, cfg.PrivateKey)
+	blockchainSvc, err := service.NewBlockchainService(cfg.EthereumRPC, cfg.ContractAddress, cfg.AbiFilePath)
 	if err != nil {
 		log.Fatalf("Failed to create blockchain service: %v", err)
 	}
 
-	sigSvc, err := service.NewSignatureService(cfg.PrivateKey, signatureStore)
-	if err != nil {
-		log.Fatalf("Failed to create signature service: %v", err)
+	// Set private key if available (for sending transactions)
+	if privateKey := os.Getenv("PRIVATE_KEY"); privateKey != "" {
+		if err := blockchainSvc.SetPrivateKey(privateKey); err != nil {
+			log.Printf("Warning: Failed to set private key: %v", err)
+		}
+	} else {
+		log.Printf("Warning: No private key set. On-chain verification will not be available.")
 	}
+
+	// Initialize signature service (no longer needs private key)
+	sigSvc := service.NewSignatureService(signatureStore)
 
 	// Initialize API handlers
 	handler := api.NewHandler(cfg, store, signatureStore, blockchainSvc, sigSvc)

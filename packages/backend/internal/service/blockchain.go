@@ -49,20 +49,12 @@ type ReserveDetailsOutput struct {
 	LastVerified *big.Int `abi:"lastVerified" json:"lastVerified"`
 }
 
-// NewBlockchainService creates a new instance of BlockchainService (the interface).
-func NewBlockchainService(rpcURL string, contractAddress string, abiFilePath string, privateKeyHex string) (BlockchainService, error) {
+// NewBlockchainService creates a new instance of BlockchainService.
+// privateKeyHex is optional and only required for sending transactions.
+func NewBlockchainService(rpcURL string, contractAddress string, abiFilePath string) (BlockchainService, error) {
 	client, err := ethclient.Dial(rpcURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to Ethereum client: %v", err)
-	}
-
-	pk := privateKeyHex
-	if strings.HasPrefix(pk, "0x") {
-		pk = pk[2:]
-	}
-	_, err = ethcrypto.HexToECDSA(pk)
-	if err != nil {
-		return nil, fmt.Errorf("invalid private key: %v", err)
 	}
 
 	abiFileBytes, err := ioutil.ReadFile(abiFilePath)
@@ -86,12 +78,30 @@ func NewBlockchainService(rpcURL string, contractAddress string, abiFilePath str
 	}
 
 	return &blockchainServiceImpl{
-		client:           client,
-		contractAddr:     common.HexToAddress(contractAddress),
-		contractABI:      parsedABI,
-		privateKeyString: privateKeyHex,
-		defaultTimeout:   30 * time.Second,
+		client:         client,
+		contractAddr:   common.HexToAddress(contractAddress),
+		contractABI:    parsedABI,
+		defaultTimeout: 30 * time.Second,
 	}, nil
+}
+
+// SetPrivateKey sets the private key for sending transactions
+func (s *blockchainServiceImpl) SetPrivateKey(privateKeyHex string) error {
+	if privateKeyHex == "" {
+		return fmt.Errorf("private key cannot be empty")
+	}
+
+	pk := privateKeyHex
+	if strings.HasPrefix(pk, "0x") {
+		pk = pk[2:]
+	}
+	_, err := ethcrypto.HexToECDSA(pk)
+	if err != nil {
+		return fmt.Errorf("invalid private key: %v", err)
+	}
+
+	s.privateKeyString = privateKeyHex
+	return nil
 }
 
 // GetReserveBalance is a method of blockchainServiceImpl.
@@ -124,6 +134,10 @@ func (s *blockchainServiceImpl) GetReserveBalance(token, wallet string) (*big.In
 
 // VerifySignature sends a transaction to the verifyProof method on the smart contract.
 func (s *blockchainServiceImpl) VerifySignature(token, wallet, signature string) (bool, error) {
+	if s.privateKeyString == "" {
+		return false, fmt.Errorf("private key not set, required for sending transactions")
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), s.defaultTimeout+30*time.Second)
 	defer cancel()
 
@@ -168,13 +182,27 @@ func (s *blockchainServiceImpl) VerifySignature(token, wallet, signature string)
 
 	tokenAddr := common.HexToAddress(token)
 	walletAddr := common.HexToAddress(wallet)
-	signatureBytes := hexutil.MustDecode(signature)
 
+	// Convert signature to bytes
+	var signatureBytes []byte
+	if strings.HasPrefix(signature, "0x") {
+		signatureBytes = common.FromHex(signature)
+	} else {
+		signatureBytes = common.FromHex("0x" + signature)
+	}
+
+	// Validate signature length
+	if len(signatureBytes) != 65 {
+		return false, fmt.Errorf("invalid signature length: must be 65 bytes (got %d bytes)", len(signatureBytes))
+	}
+
+	// Pack parameters for verifyProof
 	data, err := s.contractABI.Pack("verifyProof", tokenAddr, walletAddr, signatureBytes)
 	if err != nil {
 		return false, fmt.Errorf("failed to pack parameters for verifyProof: %v", err)
 	}
 
+	// Create and send transaction
 	tx := types.NewTransaction(auth.Nonce.Uint64(), s.contractAddr, auth.Value, auth.GasLimit, auth.GasPrice, data)
 
 	signedTx, err := types.SignTx(tx, types.NewEIP155Signer(chainID), privateKeyECDSA)
@@ -187,18 +215,32 @@ func (s *blockchainServiceImpl) VerifySignature(token, wallet, signature string)
 		return false, fmt.Errorf("failed to send transaction: %v", err)
 	}
 
+	// Wait for transaction to be mined
 	receipt, err := bind.WaitMined(ctx, s.client, signedTx)
 	if err != nil {
 		return false, fmt.Errorf("failed to mine transaction: %v", err)
 	}
 
+	// Check transaction status
 	if receipt.Status == types.ReceiptStatusFailed {
 		callErr := checkTxFailureReason(s.client, fromAddress, signedTx, receipt.BlockNumber)
 		log.Printf("On-chain transaction %s failed. Block: %s. Revert Reason: %v", signedTx.Hash().Hex(), receipt.BlockNumber.String(), callErr)
-		return false, fmt.Errorf("transaction failed on-chain (receipt status 0)")
+		return false, fmt.Errorf("transaction failed on-chain: %v", callErr)
 	}
 
-	return true, nil
+	// Check if the transaction was successful
+	var success bool
+	if len(receipt.Logs) > 0 {
+		for _, log := range receipt.Logs {
+			if len(log.Topics) > 0 && log.Topics[0] == common.HexToHash("0x7e99f890d99474682ed3b6b99077a328caa8be3436fc94725d48a8f6ab34d723") {
+				// This is the ProofVerified event
+				success = true
+				break
+			}
+		}
+	}
+
+	return success, nil
 }
 
 // Helper function to try and get a revert reason
@@ -344,6 +386,13 @@ func (s *blockchainServiceImpl) GetContractAddress() string {
 
 // VerifySignatureOffchain verifies a signature without submitting a transaction
 func (s *blockchainServiceImpl) VerifySignatureOffchain(token, wallet, signature, payload string) (bool, error) {
+	fmt.Printf("\n=== Debug: Signature Verification ===\n")
+	fmt.Printf("Token: %s\n", token)
+	fmt.Printf("Wallet: %s\n", wallet)
+	fmt.Printf("Signature: %s\n", signature)
+	fmt.Printf("Signature length: %d chars\n", len(signature))
+	fmt.Printf("Payload: %s\n", payload)
+
 	// 1. Verify the payload format matches what we expect
 	tokenAddr := common.HexToAddress(token)
 	walletAddr := common.HexToAddress(wallet)
@@ -356,33 +405,61 @@ func (s *blockchainServiceImpl) VerifySignatureOffchain(token, wallet, signature
 	// Convert the provided payload from hex to bytes
 	providedPayload := common.FromHex(payload)
 	if !bytes.Equal(expectedPayload, providedPayload) {
+		fmt.Printf("Payload mismatch!\n")
+		fmt.Printf("Expected: %x\n", expectedPayload)
+		fmt.Printf("Provided: %x\n", providedPayload)
 		return false, fmt.Errorf("payload mismatch")
 	}
+	fmt.Printf("Payload verification passed\n")
 
 	// 2. Get the signer's address from the signature
 	sig := common.FromHex(signature)
 	if len(sig) != 65 {
-		return false, fmt.Errorf("invalid signature length")
+		fmt.Printf("Invalid signature length: %d bytes (expected 65 bytes)\n", len(sig))
+		fmt.Printf("Signature hex length: %d chars (expected 132 chars + 0x prefix)\n", len(signature))
+		fmt.Printf("Raw signature: %s\n", signature)
+		fmt.Printf("Signature bytes: %x\n", sig)
+		return false, fmt.Errorf("invalid signature length: must be 65 bytes")
 	}
+	fmt.Printf("Signature length check passed\n")
+	fmt.Printf("Signature bytes: %x\n", sig)
+	fmt.Printf("V value before adjustment: %d\n", sig[64])
 
-	// Construct the message hash as done in the contract
+	// Adjust V value for Ethereum's personal_sign
+	// If V is 27/28, convert to 0/1
+	if sig[64] == 27 || sig[64] == 28 {
+		sig[64] -= 27
+	}
+	fmt.Printf("V value after adjustment: %d\n", sig[64])
+
+	// For personal_sign, we need to match the smart contract's verification:
+	// 1. First hash the message: keccak256(abi.encodePacked("ProofOfReserve:", token, wallet))
+	// 2. Then add the Ethereum signed message prefix to the hash
+	// 3. Then hash again
 	messageHash := ethcrypto.Keccak256(expectedPayload)
+	fmt.Printf("Message hash: %x\n", messageHash)
 
-	// Construct the Ethereum signed message hash
-	ethSignedMessageHash := ethcrypto.Keccak256(
-		[]byte(fmt.Sprintf("\x19Ethereum Signed Message:\n%d", len(messageHash))),
-		messageHash,
-	)
+	// Add Ethereum signed message prefix to the hash
+	prefix = []byte(fmt.Sprintf("\x19Ethereum Signed Message:\n32"))
+	msg := append(prefix, messageHash...)
+	fmt.Printf("Complete message (hex): %x\n", msg)
 
-	// Recover the signer's public key
+	// Hash the complete message
+	ethSignedMessageHash := ethcrypto.Keccak256(msg)
+	fmt.Printf("Eth signed message hash: %x\n", ethSignedMessageHash)
+
+	// Recover the signer's address
 	pubKey, err := ethcrypto.Ecrecover(ethSignedMessageHash, sig)
 	if err != nil {
+		fmt.Printf("Failed to recover public key: %v\n", err)
 		return false, fmt.Errorf("failed to recover public key: %v", err)
 	}
 
 	// Convert public key to address
 	recoveredAddr := common.BytesToAddress(ethcrypto.Keccak256(pubKey[1:])[12:])
+	fmt.Printf("Recovered address: %s\n", recoveredAddr.Hex())
+	fmt.Printf("Expected wallet: %s\n", wallet)
 
-	// Compare with the wallet address
-	return recoveredAddr == walletAddr, nil
+	// Compare addresses
+	return strings.EqualFold(recoveredAddr.Hex(), wallet), nil
 }

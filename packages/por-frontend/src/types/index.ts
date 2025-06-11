@@ -4,6 +4,9 @@ export interface AssetConfig {
   tokenAddress: string;
   walletAddress: string;
   logoUrl?: string; // Optional: for displaying token logo
+  isNativeToken?: boolean;  // Flag to indicate if this is native XDC token
+  name: string;
+  symbol: string;
 }
 
 // Matches the backend's service.ReserveDetailsOutput
@@ -19,11 +22,9 @@ export interface ReserveDetailsOutput {
 export interface VerificationResult {
   token: string;
   wallet: string;
-  verificationInitiated: boolean;
-  onChainSuccess?: boolean;
   signatureUsed?: string;
-  message: string;
-  error?: string; // To capture any error messages during verification
+  message?: string;
+  error?: string;
 }
 
 // For the /reserve-details/:token/:wallet endpoint response structure
@@ -35,4 +36,16 @@ export interface ReserveDetailsResponse {
   symbol: string;
   balance: string;
   lastVerified: string;
+}
+
+// Ethereum provider type
+declare global {
+  interface Window {
+    ethereum?: {
+      isMetaMask?: boolean;
+      request: (args: { method: string; params: any[] }) => Promise<any>;
+      on: (event: string, handler: (params?: any) => void) => void;
+      removeListener: (event: string, handler: (params?: any) => void) => void;
+    };
+  }
 } 

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { ethers, utils } from 'ethers';
+import type { ExternalProvider } from '@ethersproject/providers';
 import type { AssetConfig, ReserveDetailsOutput, VerificationResult } from '../types';
 import { getReserveDetails, initiateOnchainVerification, submitSignature } from '../services/api';
 import { useWallet } from '../hooks/useWallet';
@@ -8,12 +9,25 @@ interface AssetCardProps {
   asset: AssetConfig;
 }
 
+const NATIVE_XDC_ADDRESS = "0x0000000000000000000000000000000000000000";
+
 // Helper function to truncate a string (e.g., Ethereum address or signature)
 const truncateString = (str: string | undefined, startChars: number, endChars: number): string => {
   if (!str) return 'N/A';
   if (str.length <= startChars + endChars + 3) return str; // Don't truncate if it's already short
   return `${str.substring(0, startChars)}...${str.substring(str.length - endChars)}`;
 };
+
+declare global {
+  interface Window {
+    ethereum?: {
+      isMetaMask?: boolean;
+      request: (args: { method: string; params: any[]; }) => Promise<any>;
+      on: (event: string, handler: (params?: any) => void) => void;
+      removeListener: (event: string, handler: (params?: any) => void) => void;
+    };
+  }
+}
 
 const AssetCard: React.FC<AssetCardProps> = ({ asset }) => {
   const { account } = useWallet();
@@ -29,39 +43,70 @@ const AssetCard: React.FC<AssetCardProps> = ({ asset }) => {
 
   const generatePayload = (token: string, wallet: string): string => {
     const prefix = utils.toUtf8Bytes('ProofOfReserve:');
-    const tokenAddr = utils.getAddress(token);
+    // Use address(0) for native XDC token
+    const tokenAddr = asset.isNativeToken ? NATIVE_XDC_ADDRESS : utils.getAddress(token);
     const walletAddr = utils.getAddress(wallet);
+    
+    // Convert addresses to bytes without 0x prefix
+    const tokenBytes = utils.arrayify(tokenAddr);
+    const walletBytes = utils.arrayify(walletAddr);
+    
+    // Ensure token address is padded to 20 bytes
+    const paddedTokenBytes = new Uint8Array(20);
+    paddedTokenBytes.set(tokenBytes, paddedTokenBytes.length - tokenBytes.length);
     
     const payload = utils.concat([
       prefix,
-      utils.arrayify(tokenAddr),
-      utils.arrayify(walletAddr)
+      paddedTokenBytes,
+      walletBytes
     ]);
 
-    return utils.hexlify(payload);
+    const hexPayload = utils.hexlify(payload).replace('0x', '');
+    console.log('Generated payload:', {
+      prefix: utils.hexlify(prefix),
+      tokenAddr,
+      walletAddr,
+      hexPayload,
+      expectedPayload: '50726f6f664f66526573657276653a0000000000000000000000000000000000000000fa4e7cfcdb5c280f887e8b0dbbfa4bdea19c3f7e'
+    });
+
+    return hexPayload;
   };
 
   const handleSignAndSubmit = async () => {
-    if (!window.ethereum || !isReserveWallet) return;
+    if (!window.ethereum || !isReserveWallet || !account) return;
 
     setIsSigningAndSubmitting(true);
     setVerificationError(null);
 
     try {
       // Generate payload
-      const payload = generatePayload(asset.tokenAddress, asset.walletAddress);
+      const tokenAddress = asset.isNativeToken ? NATIVE_XDC_ADDRESS : asset.tokenAddress;
+      const payload = generatePayload(tokenAddress, asset.walletAddress);
+      console.log('Generated Payload:', payload);
 
-      // Sign with MetaMask
-      const provider = new ethers.providers.Web3Provider(window.ethereum);
-      const signer = provider.getSigner();
-      const signature = await signer.signMessage(utils.arrayify(payload));
+      // Hash the payload first using keccak256(abi.encodePacked())
+      const payloadBytes = utils.arrayify('0x' + payload);
+      const messageHash = utils.keccak256(payloadBytes);
+      console.log('Message Hash:', messageHash);
+
+      // Use personal_sign which is the recommended way to sign messages
+      const signature = await window.ethereum.request({
+        method: 'personal_sign',
+        params: [messageHash, account],
+      });
+      console.log('Raw Signature:', signature);
+
+      // Set validUntil to 30 days from now
+      const validUntil = Math.floor(Date.now() / 1000) + (30 * 24 * 60 * 60);
 
       // Submit to backend
       await submitSignature({
-        token: asset.tokenAddress,
+        token: tokenAddress,
         wallet: asset.walletAddress,
         signature,
-        payload,
+        payload, // Send payload without 0x prefix
+        validUntil,
       });
 
       setVerificationStatus({
@@ -121,25 +166,56 @@ const AssetCard: React.FC<AssetCardProps> = ({ asset }) => {
       setIsVerifying(true);
       setVerificationStatus(null);
       setVerificationError(null);
+      
+      // Initiate verification
       const result: VerificationResult = await initiateOnchainVerification(asset.tokenAddress, asset.walletAddress);
+      
+      // Show pending status
       setVerificationStatus({
-        success: result.onChainSuccess || false,
-        message: result.message || (result.onChainSuccess ? 'Verification Successful' : 'Verification Failed'),
-        signature: result.signatureUsed,
+        success: true,
+        message: 'Verification in progress...',
       });
 
-      if (result.onChainSuccess) {
-        setTimeout(() => {
-          fetchAssetDetails();
-        }, 2000);
+      // Poll for verification status
+      let attempts = 0;
+      const maxAttempts = 10;
+      const pollInterval = 2000; // 2 seconds
+
+      while (attempts < maxAttempts) {
+        await new Promise(resolve => setTimeout(resolve, pollInterval));
+        
+        try {
+          const details = await getReserveDetails(asset.tokenAddress, asset.walletAddress);
+          const lastVerifiedTime = Number(details.lastVerified);
+          const currentTime = Math.floor(Date.now() / 1000);
+          
+          // Check if verification was successful (lastVerified is recent)
+          if (lastVerifiedTime > currentTime - 60) { // Within last minute
+            setVerificationStatus({
+              success: true,
+              message: 'Verification Successful',
+              signature: result.signatureUsed,
+            });
+            setDetails(details);
+            return;
+          }
+        } catch (err) {
+          console.error('Error polling verification status:', err);
+        }
+
+        attempts++;
       }
+
+      // If we get here, verification timed out
+      throw new Error('Verification timed out. Please refresh the page to check the status.');
+
     } catch (err) {
       let errorMessage = 'An unknown error occurred during verification.';
       if (err instanceof Error) {
         errorMessage = err.message;
       }
       setVerificationError(errorMessage);
-      setVerificationStatus({ success: false, message: 'Verification Failed on client-side' });
+      setVerificationStatus({ success: false, message: 'Verification Failed' });
       console.error(`Error verifying ${asset.displayName}:`, err);
     } finally {
       setIsVerifying(false);

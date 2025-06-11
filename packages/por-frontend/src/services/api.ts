@@ -60,17 +60,34 @@ export async function submitSignature(data: {
   wallet: string;
   signature: string;
   payload: string;
+  validUntil: number;
 }): Promise<void> {
+  console.log('Submitting signature with data:', {
+    ...data,
+    payload: data.payload.replace('0x', '') // Log the actual payload being sent
+  });
+
+  const requestBody = {
+    token: data.token,
+    wallet: data.wallet,
+    signature: data.signature,
+    payload: data.payload.replace('0x', ''), // Remove 0x prefix if present
+    validUntil: data.validUntil,
+  };
+
+  console.log('Request body:', JSON.stringify(requestBody, null, 2));
+
   const response = await fetch(`${API_BASE_URL}/signature/submit`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify(data),
+    body: JSON.stringify(requestBody),
   });
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({ message: "Failed to submit signature" }));
+    console.error('Error response:', errorData);
     throw new Error(errorData.error || errorData.message || `Failed to submit signature: ${response.statusText}`);
   }
 } 

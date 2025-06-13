@@ -12,7 +12,19 @@ interface IERC20 {
  * @notice A minimal contract to manage and verify proof of reserves for tokens and wallets
  */
 contract ProofOfReserve {
+    // EIP-712 type hashes
+    bytes32 public constant DOMAIN_TYPEHASH = keccak256(
+        "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
+    );
+    
+    bytes32 public constant PROOF_TYPEHASH = keccak256(
+        "Proof(address token,address wallet,uint256 validUntil)"
+    );
 
+    string public constant DOMAIN_NAME = "ProofOfReserve";
+    string public constant DOMAIN_VERSION = "1";
+    uint256 public immutable CHAIN_ID;
+    bytes32 private immutable _DOMAIN_SEPARATOR;
     
     // State variables
     address public owner;
@@ -50,7 +62,21 @@ contract ProofOfReserve {
      */
     constructor() {
         owner = msg.sender;
+        CHAIN_ID = block.chainid;
+        _DOMAIN_SEPARATOR = keccak256(
+            abi.encode(
+                DOMAIN_TYPEHASH,
+                keccak256(bytes(DOMAIN_NAME)),
+                keccak256(bytes(DOMAIN_VERSION)),
+                block.chainid,
+                address(this)
+            )
+        );
         emit OwnershipTransferred(address(0), msg.sender);
+    }
+
+    function DOMAIN_SEPARATOR() public view returns (bytes32) {
+        return _DOMAIN_SEPARATOR;
     }
 
     /**
@@ -104,25 +130,39 @@ contract ProofOfReserve {
     }
 
     /**
-     * @notice Submit and verify a proof of reserve
+     * @notice Submit and verify a proof of reserve using EIP-712 signature
      * @param token The ERC20 token address
      * @param wallet The reserve wallet address
-     * @param signature The signature proving the wallet owns the reserves
+     * @param validUntil The timestamp until which this proof is valid
+     * @param signature The EIP-712 signature proving the wallet owns the reserves
      * @return success Whether the proof was valid
      */
     function verifyProof(
         address token,
         address wallet,
+        uint256 validUntil,
         bytes memory signature
     ) external returns (bool success) {
         require(isReserveWallet[token][wallet], "Reserve not active");
+        require(validUntil > block.timestamp, "Proof has expired");
         
-        // Create and verify signature of the ownership claim
-        bytes32 messageHash = getMessageHash(token, wallet);
-        bytes32 ethSignedMessageHash = getEthSignedMessageHash(messageHash);
-        address signer = recoverSigner(ethSignedMessageHash, signature);
+        // Verify EIP-712 signature
+        bytes32 digest = keccak256(
+            abi.encodePacked(
+                "\x19\x01",
+                DOMAIN_SEPARATOR(),
+                keccak256(
+                    abi.encode(
+                        PROOF_TYPEHASH,
+                        token,
+                        wallet,
+                        validUntil
+                    )
+                )
+            )
+        );
         
-        // Verify the signature matches the wallet
+        address signer = recoverSigner(digest, signature);
         success = (signer == wallet);
         
         if (success) {
@@ -134,38 +174,10 @@ contract ProofOfReserve {
     }
 
     /**
-     * @notice Creates a message hash from token and wallet
-     * @param token The token address
-     * @param wallet The wallet address
-     */
-    function getMessageHash(
-        address token,
-        address wallet
-    ) public pure returns (bytes32) {
-        return keccak256(abi.encodePacked(
-            "ProofOfReserve:",
-            token,
-            wallet
-        ));
-    }
-
-    /**
-     * @notice Creates Ethereum signed message hash
-     */
-    function getEthSignedMessageHash(
-        bytes32 messageHash
-    ) public pure returns (bytes32) {
-        return keccak256(abi.encodePacked(
-            "\x19Ethereum Signed Message:\n32",
-            messageHash
-        ));
-    }
-
-    /**
      * @notice Split signature into r, s, v components and recover signer
      */
     function recoverSigner(
-        bytes32 ethSignedMessageHash,
+        bytes32 digest,
         bytes memory signature
     ) public pure returns (address) {
         require(signature.length == 65, "Invalid signature length");
@@ -186,7 +198,7 @@ contract ProofOfReserve {
 
         require(v == 27 || v == 28, "Invalid signature 'v' value");
 
-        return ecrecover(ethSignedMessageHash, v, r, s);
+        return ecrecover(digest, v, r, s);
     }
 
     /**
@@ -208,10 +220,10 @@ contract ProofOfReserve {
         if (configured) {
             if (token == address(0)) {
                 // Handle native chain token (e.g., XDC)
-                tokenName = "XinFin XDC"; // Or a generic name like "Native Token"
-                tokenSymbol = "XDC";      // Or the chain's native symbol
+                tokenName = "XinFin XDC";
+                tokenSymbol = "XDC";
                 bal = wallet.balance;
-            } else if (token != address(0)) { // Explicitly check for non-zero address for ERC20
+            } else if (token != address(0)) {
                 // Handle ERC20 token
                 IERC20 tokenContract = IERC20(token);
                 try tokenContract.name() returns (string memory _name) {

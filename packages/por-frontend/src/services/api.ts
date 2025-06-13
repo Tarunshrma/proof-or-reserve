@@ -1,6 +1,6 @@
 import type { ReserveDetails, VerificationResult, AssetConfig } from '../types';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8082';
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8082';
 
 export async function getConfiguredAssets(): Promise<AssetConfig[]> {
   const response = await fetch(`${API_BASE_URL}/assets/configured`);
@@ -58,7 +58,7 @@ export async function submitSignature(
   signature: string,
   validUntil: number
 ): Promise<VerificationResult> {
-  const response = await fetch(`${API_BASE_URL}/submit-signature`, {
+  const response = await fetch(`${API_BASE_URL}/signature/submit`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

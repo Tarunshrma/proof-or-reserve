@@ -16,6 +16,7 @@ export interface AssetConfig {
   icon?: string;
   isNativeToken?: boolean;
   displayName?: string;
+  logoUrl?: string;
 }
 
 // Matches the backend's service.ReserveDetailsOutput

@@ -2,10 +2,11 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { ethers, utils } from 'ethers';
 import type { ExternalProvider } from '@ethersproject/providers';
 import type { AssetConfig, ReserveDetailsOutput, VerificationResult } from '../types';
-import { getReserveDetails, initiateOnchainVerification, submitSignature } from '../services/api';
+import { getReserveDetails, initiateOnchainVerification, submitSignature, API_BASE_URL } from '../services/api';
 import { useWallet } from '../hooks/useWallet';
 import { signProofTypedData, getValidUntil } from '../utils/signing';
 import './AssetCard.css';
+import ProofOfReserveArtifact from '../config/ProofOfReserve.json';
 
 interface AssetCardProps {
   asset: AssetConfig;
@@ -20,17 +21,6 @@ const truncateString = (str: string | undefined, startChars: number, endChars: n
   return `${str.substring(0, startChars)}...${str.substring(str.length - endChars)}`;
 };
 
-declare global {
-  interface Window {
-    ethereum?: {
-      isMetaMask?: boolean;
-      request: (args: { method: string; params: any[]; }) => Promise<any>;
-      on: (event: string, handler: (params?: any) => void) => void;
-      removeListener: (event: string, handler: (params?: any) => void) => void;
-    };
-  }
-}
-
 const AssetCard: React.FC<AssetCardProps> = ({ asset }) => {
   const { account } = useWallet();
   const [details, setDetails] = useState<ReserveDetailsOutput | null>(null);
@@ -38,7 +28,7 @@ const AssetCard: React.FC<AssetCardProps> = ({ asset }) => {
   const [error, setError] = useState<string | null>(null);
   const [isVerifying, setIsVerifying] = useState<boolean>(false);
   const [isSigningAndSubmitting, setIsSigningAndSubmitting] = useState<boolean>(false);
-  const [verificationStatus, setVerificationStatus] = useState<{ success: boolean; message: string; signature?: string } | null>(null);
+  const [verificationStatus, setVerificationStatus] = useState<{ success: boolean; message: string; signature?: string; txHash?: string } | null>(null);
   const [verificationError, setVerificationError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
 
@@ -83,41 +73,38 @@ const AssetCard: React.FC<AssetCardProps> = ({ asset }) => {
     setVerificationError(null);
 
     try {
-      // Generate payload
-      const tokenAddress = asset.isNativeToken ? NATIVE_XDC_ADDRESS : asset.tokenAddress;
-      const payload = generatePayload(tokenAddress, asset.walletAddress);
-      console.log('Generated Payload:', payload);
+      const provider = new ethers.providers.Web3Provider(window.ethereum as any);
+      const chainId = await provider.getNetwork().then(n => n.chainId);
 
-      // Hash the payload first using keccak256(abi.encodePacked())
-      const payloadBytes = utils.arrayify('0x' + payload);
-      const messageHash = utils.keccak256(payloadBytes);
-      console.log('Message Hash:', messageHash);
+      const contractAddress = import.meta.env.VITE_CONTRACT_ADDRESS;
+      if (!contractAddress) {
+        throw new Error('Contract address not configured');
+      }
 
-      // Use personal_sign which is the recommended way to sign messages
-      const signature = await window.ethereum.request({
-        method: 'personal_sign',
-        params: [messageHash, account],
-      });
-      console.log('Raw Signature:', signature);
+      const validUntil = getValidUntil(30); // 30 days validity
+      const signature = await signProofTypedData(
+        provider,
+        contractAddress,
+        chainId,
+        {
+          token: asset.tokenAddress,
+          wallet: asset.walletAddress,
+          validUntil,
+        }
+      );
 
-      // Set validUntil to 30 days from now
-      const validUntil = Math.floor(Date.now() / 1000) + (30 * 24 * 60 * 60);
-
-      // Submit to backend
-      await submitSignature({
-        token: tokenAddress,
-        wallet: asset.walletAddress,
+      await submitSignature(
+        asset.tokenAddress,
+        asset.walletAddress,
         signature,
-        payload, // Send payload without 0x prefix
-        validUntil,
-      });
+        validUntil
+      );
 
       setVerificationStatus({
         success: true,
-        message: 'Signature submitted successfully',
+        message: 'Signature submitted and stored successfully! You can now verify on-chain.',
       });
 
-      // Refresh details after successful submission
       setTimeout(() => {
         fetchAssetDetails();
       }, 2000);
@@ -171,51 +158,52 @@ const AssetCard: React.FC<AssetCardProps> = ({ asset }) => {
       setVerificationError(null);
       setSuccess(false);
 
-      // Get the provider and signer
-      const provider = new ethers.providers.Web3Provider(window.ethereum);
-      const chainId = await provider.getNetwork().then(n => n.chainId);
-
-      // Get the contract address from environment
-      const contractAddress = process.env.REACT_APP_CONTRACT_ADDRESS;
-      if (!contractAddress) {
-        throw new Error('Contract address not configured');
+      // 1. Fetch the stored signature and validUntil from backend
+      const sigResponse = await fetch(`${API_BASE_URL}/signature/${asset.tokenAddress}/${asset.walletAddress}`);
+      if (!sigResponse.ok) {
+        const data = await sigResponse.json();
+        throw new Error(data.error || 'Failed to fetch stored signature');
       }
+      const { signature, validUntil } = await sigResponse.json();
 
-      // Sign the proof using EIP-712
-      const validUntil = getValidUntil(30); // 30 days validity
-      const signature = await signProofTypedData(
-        provider,
-        contractAddress,
-        chainId,
-        {
-          token: asset.tokenAddress,
-          wallet: asset.walletAddress,
-          validUntil,
-        }
+      // 2. Use ethers.js to call verifyProof on-chain
+      if (!window.ethereum) throw new Error('No Ethereum provider found');
+      const provider = new ethers.providers.Web3Provider(window.ethereum as any);
+      const signer = provider.getSigner();
+      const contractAddress = import.meta.env.VITE_CONTRACT_ADDRESS;
+      const contract = new ethers.Contract(contractAddress, ProofOfReserveArtifact.abi, signer);
+
+      const tx = await contract.verifyProof(
+        asset.tokenAddress,
+        asset.walletAddress,
+        validUntil,
+        signature
       );
-
-      // Submit the proof to the backend
-      const response = await fetch(`${process.env.REACT_APP_API_URL}/submit-signature`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          token: asset.tokenAddress,
-          wallet: asset.walletAddress,
-          signature,
-          validUntil,
-        }),
+      const getExplorerTxUrl = (txHash: string) => `https://explorer.apothem.network/tx/${txHash}`;
+      setVerificationStatus({
+        success: true,
+        message: `Signature verified on-chain successfully!\n\nView transaction: <a href='${getExplorerTxUrl(tx.hash)}' target='_blank' rel='noopener noreferrer'>${tx.hash.slice(0, 10)}...</a>`,
+        txHash: tx.hash,
       });
 
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || 'Failed to verify proof');
+      // 3. Wait for the transaction to be mined
+      const receipt = await tx.wait();
+      if (receipt.status === 1) {
+        setVerificationStatus({
+          success: true,
+          message: 'Signature verified on-chain successfully!',
+          txHash: tx.hash,
+        });
+        setSuccess(true);
+      } else {
+        throw new Error('Transaction failed on-chain');
       }
-
-      setSuccess(true);
     } catch (err) {
       console.error('Verification failed:', err);
+      setVerificationStatus({
+        success: false,
+        message: `Verification failed: ${err instanceof Error ? err.message : 'Unknown error. Please try again or check your wallet.'}`,
+      });
       setVerificationError(err instanceof Error ? err.message : 'Failed to verify proof');
     } finally {
       setIsVerifying(false);
@@ -255,9 +243,8 @@ const AssetCard: React.FC<AssetCardProps> = ({ asset }) => {
       {isLoading && <p className="status-message loading">Loading details...</p>}
       {error && !isLoading && <p className="status-message error">Error fetching details: {error}</p>}
       {verificationStatus && (
-        <div className={`status-message ${verificationStatus.success ? 'success' : 'error'}`}>
-          <p>{verificationStatus.message}</p>
-        </div>
+        <div className={`status-message ${verificationStatus.success ? 'success' : 'error'}`}
+             dangerouslySetInnerHTML={{ __html: verificationStatus.message }} />
       )}
       {verificationError && !verificationStatus && (
          <p className="status-message error">Verification Failed: {verificationError}</p>

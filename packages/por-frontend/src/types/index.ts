@@ -7,6 +7,7 @@ declare global {
 }
 
 export interface AssetConfig {
+  id?: string;
   address: string;
   tokenAddress: string;
   walletAddress: string;
@@ -52,4 +53,5 @@ export interface ReserveDetails {
   symbol: string;
   balance: string;
   lastVerified: string;
+  tokenAddress?: string;
 } 

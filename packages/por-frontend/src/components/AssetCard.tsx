@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { ethers, utils } from 'ethers';
-import type { ExternalProvider } from '@ethersproject/providers';
-import type { AssetConfig, ReserveDetailsOutput, VerificationResult } from '../types';
-import { getReserveDetails, initiateOnchainVerification, submitSignature, API_BASE_URL } from '../services/api';
+import type { AssetConfig, ReserveDetailsOutput } from '../types';
+import { getReserveDetails, submitSignature, API_BASE_URL } from '../services/api';
 import { useWallet } from '../hooks/useWallet';
 import { signProofTypedData, getValidUntil } from '../utils/signing';
 import './AssetCard.css';
@@ -21,6 +20,24 @@ const truncateString = (str: string | undefined, startChars: number, endChars: n
   return `${str.substring(0, startChars)}...${str.substring(str.length - endChars)}`;
 };
 
+function getFriendlyErrorMessage(error: any): string {
+  if (!error) return 'Unknown error. Please try again.';
+  const msg = typeof error === 'string' ? error : error.message || '';
+  if (msg.includes('unknown account') || msg.includes('getAddress')) {
+    return 'No wallet account found. Please connect your wallet and try again.';
+  }
+  if (msg.includes('user rejected') || msg.includes('User denied')) {
+    return 'You rejected the transaction or signature request.';
+  }
+  if (msg.includes('No Ethereum provider')) {
+    return 'No wallet provider found. Please install MetaMask or another wallet.';
+  }
+  if (msg.includes('UNSUPPORTED_OPERATION')) {
+    return 'Wallet operation not supported. Please reconnect your wallet.';
+  }
+  return msg || 'Unknown error. Please try again.';
+}
+
 const AssetCard: React.FC<AssetCardProps> = ({ asset }) => {
   const { account } = useWallet();
   const [details, setDetails] = useState<ReserveDetailsOutput | null>(null);
@@ -33,38 +50,6 @@ const AssetCard: React.FC<AssetCardProps> = ({ asset }) => {
   const [success, setSuccess] = useState(false);
 
   const isReserveWallet = account?.toLowerCase() === asset.walletAddress.toLowerCase();
-
-  const generatePayload = (token: string, wallet: string): string => {
-    const prefix = utils.toUtf8Bytes('ProofOfReserve:');
-    // Use address(0) for native XDC token
-    const tokenAddr = asset.isNativeToken ? NATIVE_XDC_ADDRESS : utils.getAddress(token);
-    const walletAddr = utils.getAddress(wallet);
-    
-    // Convert addresses to bytes without 0x prefix
-    const tokenBytes = utils.arrayify(tokenAddr);
-    const walletBytes = utils.arrayify(walletAddr);
-    
-    // Ensure token address is padded to 20 bytes
-    const paddedTokenBytes = new Uint8Array(20);
-    paddedTokenBytes.set(tokenBytes, paddedTokenBytes.length - tokenBytes.length);
-    
-    const payload = utils.concat([
-      prefix,
-      paddedTokenBytes,
-      walletBytes
-    ]);
-
-    const hexPayload = utils.hexlify(payload).replace('0x', '');
-    console.log('Generated payload:', {
-      prefix: utils.hexlify(prefix),
-      tokenAddr,
-      walletAddr,
-      hexPayload,
-      expectedPayload: '50726f6f664f66526573657276653a0000000000000000000000000000000000000000fa4e7cfcdb5c280f887e8b0dbbfa4bdea19c3f7e'
-    });
-
-    return hexPayload;
-  };
 
   const handleSignAndSubmit = async () => {
     if (!window.ethereum || !isReserveWallet || !account) return;
@@ -110,7 +95,7 @@ const AssetCard: React.FC<AssetCardProps> = ({ asset }) => {
       }, 2000);
     } catch (err) {
       console.error('Error signing and submitting:', err);
-      setVerificationError(err instanceof Error ? err.message : 'Failed to sign and submit');
+      setVerificationError(getFriendlyErrorMessage(err));
     } finally {
       setIsSigningAndSubmitting(false);
     }
@@ -140,7 +125,7 @@ const AssetCard: React.FC<AssetCardProps> = ({ asset }) => {
 
   // Auto-hide success messages
   useEffect(() => {
-    let timer: NodeJS.Timeout;
+    let timer: ReturnType<typeof setTimeout>;
     if (verificationStatus && verificationStatus.success) {
       timer = setTimeout(() => {
         setVerificationStatus(null);
@@ -202,9 +187,9 @@ const AssetCard: React.FC<AssetCardProps> = ({ asset }) => {
       console.error('Verification failed:', err);
       setVerificationStatus({
         success: false,
-        message: `Verification failed: ${err instanceof Error ? err.message : 'Unknown error. Please try again or check your wallet.'}`,
+        message: `Verification failed: ${getFriendlyErrorMessage(err)}`,
       });
-      setVerificationError(err instanceof Error ? err.message : 'Failed to verify proof');
+      setVerificationError(getFriendlyErrorMessage(err));
     } finally {
       setIsVerifying(false);
     }
@@ -272,7 +257,7 @@ const AssetCard: React.FC<AssetCardProps> = ({ asset }) => {
             {/* Verify button */}
             <button 
               onClick={handleVerify} 
-              disabled={isVerifying || !details?.isConfigured || isLoading}
+              disabled={isVerifying || !details?.isConfigured || isLoading || !account}
               className={`verify-button ${success ? 'success' : ''}`}
             >
               {isVerifying ? 'Verifying...' : success ? 'Verified!' : 'Verify Now'}

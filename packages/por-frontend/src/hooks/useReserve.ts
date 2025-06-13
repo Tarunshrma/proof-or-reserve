@@ -29,7 +29,7 @@ export const useReserve = (walletAddress: string | null) => {
         
         setReserveInfo({
           isReserve: details.isConfigured,
-          token: details.tokenAddress.toLowerCase(),
+          token: details.tokenAddress ? details.tokenAddress.toLowerCase() : '',
           wallet: walletAddress.toLowerCase(),
         });
       } catch (err) {

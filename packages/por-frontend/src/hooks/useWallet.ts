@@ -1,15 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { ethers } from 'ethers';
 import type { WalletState } from '../types/web3';
+import type { ExternalProvider } from '@ethersproject/providers';
 
 declare global {
   interface Window {
-    ethereum?: {
-      isMetaMask?: boolean;
-      request?: (args: { method: string; params?: any[] }) => Promise<any>;
-      on: (event: string, handler: (params?: any) => void) => void;
-      removeListener: (event: string, handler: (params?: any) => void) => void;
-    };
+    ethereum?: ExternalProvider;
   }
 }
 

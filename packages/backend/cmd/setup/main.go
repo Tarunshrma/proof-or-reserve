@@ -6,7 +6,7 @@ import (
 	"os"
 
 	"github.com/Tarunshrma/proof-or-reserve/internal/config"
-	"github.com/ethereum/go-ethereum/common"
+	"github.com/Tarunshrma/proof-or-reserve/internal/service"
 	"github.com/joho/godotenv"
 )
 
@@ -19,12 +19,26 @@ func main() {
 		log.Printf("Warning: .env file not found")
 	}
 
-	// Contract address from environment
-	contractAddr := os.Getenv("CONTRACT_ADDRESS")
-	if contractAddr == "" {
-		log.Fatal("CONTRACT_ADDRESS environment variable is required")
+	// Load configuration
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("Failed to load configuration: %v", err)
 	}
-	contractAddress := common.HexToAddress(contractAddr)
+
+	// Initialize blockchain service
+	blockchainSvc, err := service.NewBlockchainService(cfg.EthereumRPC, cfg.ContractAddress, cfg.AbiFilePath)
+	if err != nil {
+		log.Fatalf("Failed to initialize blockchain service: %v", err)
+	}
+
+	// Set private key for transactions
+	privateKey := os.Getenv("PRIVATE_KEY")
+	if privateKey == "" {
+		log.Fatal("PRIVATE_KEY environment variable is required")
+	}
+	if err := blockchainSvc.SetPrivateKey(privateKey); err != nil {
+		log.Fatalf("Failed to set private key: %v", err)
+	}
 
 	// Load reserve configurations
 	configs, err := config.LoadReserveConfigs(*configPath)
@@ -32,7 +46,33 @@ func main() {
 		log.Fatalf("Failed to load reserve configurations: %v", err)
 	}
 
-	log.Printf("Contract address: %s", contractAddress.Hex())
+	log.Printf("Contract address: %s", cfg.ContractAddress)
 	log.Printf("Loaded %d reserve configurations", len(configs.Reserves))
-	log.Printf("Please use the frontend to submit signatures for each reserve wallet")
+
+	// Configure each reserve
+	for _, reserve := range configs.Reserves {
+		log.Printf("Configuring reserve: token=%s, wallet=%s", reserve.Token, reserve.Wallet)
+
+		// Check if already configured
+		isConfigured, err := blockchainSvc.IsReserveWallet(reserve.Token, reserve.Wallet)
+		if err != nil {
+			log.Printf("Failed to check if reserve is configured: %v", err)
+			continue
+		}
+
+		if isConfigured {
+			log.Printf("Reserve already configured: token=%s, wallet=%s", reserve.Token, reserve.Wallet)
+			continue
+		}
+
+		// Configure the reserve
+		if err := blockchainSvc.ConfigureReserve(reserve.Token, reserve.Wallet); err != nil {
+			log.Printf("Failed to configure reserve: %v", err)
+			continue
+		}
+
+		log.Printf("Successfully configured reserve: token=%s, wallet=%s", reserve.Token, reserve.Wallet)
+	}
+
+	log.Printf("Setup complete")
 }

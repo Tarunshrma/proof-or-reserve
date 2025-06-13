@@ -5,16 +5,17 @@ import (
 	"time"
 
 	"github.com/Tarunshrma/proof-or-reserve/internal/storage"
+	"github.com/Tarunshrma/proof-or-reserve/internal/types"
 	"github.com/ethereum/go-ethereum/common"
 )
 
-// signatureServiceImpl is the concrete implementation of the SignatureService interface.
+// signatureServiceImpl is the concrete implementation of the types.SignatureService interface.
 type signatureServiceImpl struct {
 	signatureStore *storage.SignatureStorage
 }
 
 // NewSignatureService creates a new concrete signature service.
-func NewSignatureService(store *storage.SignatureStorage) SignatureService {
+func NewSignatureService(store *storage.SignatureStorage) types.SignatureService {
 	return &signatureServiceImpl{
 		signatureStore: store,
 	}
@@ -64,9 +65,11 @@ func (s *signatureServiceImpl) IsSignatureValid(token, wallet string) (bool, uin
 		return false, 0, nil
 	}
 
+	// Check if the signature has expired
 	now := uint64(time.Now().Unix())
 	if now > record.ValidUntil {
 		return false, record.ValidUntil, nil
 	}
+
 	return true, record.ValidUntil, nil
 }

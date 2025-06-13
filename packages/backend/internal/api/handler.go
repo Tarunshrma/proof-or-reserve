@@ -7,21 +7,23 @@ import (
 	"net/http"
 
 	"github.com/Tarunshrma/proof-or-reserve/internal/config"
-	"github.com/Tarunshrma/proof-or-reserve/internal/service"
 	"github.com/Tarunshrma/proof-or-reserve/internal/storage"
+	"github.com/Tarunshrma/proof-or-reserve/internal/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/gin-gonic/gin"
 )
 
+// Handler handles HTTP requests
 type Handler struct {
 	config         *config.Config
 	store          *storage.JSONStorage
 	signatureStore *storage.SignatureStorage
-	sigService     service.SignatureService
-	blockchain     service.BlockchainService
+	sigService     types.SignatureService
+	blockchain     types.BlockchainService
 }
 
-func NewHandler(cfg *config.Config, store *storage.JSONStorage, sigStore *storage.SignatureStorage, blockchainSvc service.BlockchainService, sigSvc service.SignatureService) *Handler {
+// NewHandler creates a new Handler instance
+func NewHandler(cfg *config.Config, store *storage.JSONStorage, sigStore *storage.SignatureStorage, blockchainSvc types.BlockchainService, sigSvc types.SignatureService) *Handler {
 	return &Handler{
 		config:         cfg,
 		store:          store,
@@ -38,6 +40,12 @@ func (h *Handler) GetSignature(c *gin.Context) {
 
 	if !common.IsHexAddress(token) || !common.IsHexAddress(wallet) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid token or wallet address"})
+		return
+	}
+
+	// Only check for zero address on wallet, allow zero address for token (native XDC)
+	if wallet == "0x0000000000000000000000000000000000000000" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Zero address not allowed for wallet"})
 		return
 	}
 
@@ -128,23 +136,31 @@ func (h *Handler) GetReserveDetails(c *gin.Context) {
 		return
 	}
 
+	// Only check for zero address on wallet, allow zero address for token (native XDC)
+	if wallet == "0x0000000000000000000000000000000000000000" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Zero address not allowed for wallet"})
+		return
+	}
+
+	// First check if this is a valid reserve wallet
+	isReserve, err := h.blockchain.IsReserveWallet(token, wallet)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check reserve status: " + err.Error()})
+		return
+	}
+
+	if !isReserve {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Not a configured reserve wallet"})
+		return
+	}
+
 	details, err := h.blockchain.GetReserveDetails(token, wallet)
 	if err != nil {
-		// Check for specific error types if needed, e.g., contract not found vs. other errors
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get reserve details: " + err.Error()})
 		return
 	}
 
-	// Convert big.Int to string for JSON response to ensure readability and compatibility
-	c.JSON(http.StatusOK, gin.H{
-		"tokenAddress":  token,
-		"walletAddress": wallet,
-		"isConfigured":  details.IsConfigured,
-		"name":          details.Name,
-		"symbol":        details.Symbol,
-		"balance":       details.Balance.String(),      // Convert big.Int to string
-		"lastVerified":  details.LastVerified.String(), // Convert big.Int to string
-	})
+	c.JSON(http.StatusOK, details)
 }
 
 // InitiateOnchainVerificationRequest defines the expected JSON body for the verification request.
@@ -199,8 +215,8 @@ func (h *Handler) InitiateOnchainVerification(c *gin.Context) {
 		return
 	}
 
-	// 4. Call VerifySignature on the blockchain with the stored signature
-	onChainSuccess, err := h.blockchain.VerifySignature(req.Token, req.Wallet, sigRecord.Signature)
+	// 4. Call VerifyProof on the blockchain with the stored signature
+	onChainSuccess, err := h.blockchain.VerifyProof(req.Token, req.Wallet, validUntil, sigRecord.Signature)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "On-chain verification failed: " + err.Error()})
 		return
@@ -223,6 +239,12 @@ func (h *Handler) GetReserveBalance(c *gin.Context) {
 
 	if !common.IsHexAddress(token) || !common.IsHexAddress(wallet) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid token or wallet address"})
+		return
+	}
+
+	// Only check for zero address on wallet, allow zero address for token (native XDC)
+	if wallet == "0x0000000000000000000000000000000000000000" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Zero address not allowed for wallet"})
 		return
 	}
 
@@ -348,64 +370,43 @@ func (h *Handler) GetContractConfig(c *gin.Context) {
 	})
 }
 
-// SubmitSignature handles signature submission from the frontend
-type SubmitSignatureRequest struct {
-	Token      string `json:"token" binding:"required"`
-	Wallet     string `json:"wallet" binding:"required"`
-	Signature  string `json:"signature" binding:"required"`
-	Payload    string `json:"payload" binding:"required"`
-	ValidUntil uint64 `json:"validUntil" binding:"required"`
-}
-
+// SubmitSignature handles signature submission
 func (h *Handler) SubmitSignature(c *gin.Context) {
-	var req SubmitSignatureRequest
+	var req types.SubmitSignatureRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload: " + err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-
-	// Log signature details
-	log.Printf("Received signature: %s\n", req.Signature)
-	log.Printf("Signature length: %d chars\n", len(req.Signature))
-	log.Printf("Signature bytes length: %d bytes\n", len(common.FromHex(req.Signature)))
 
 	if !common.IsHexAddress(req.Token) || !common.IsHexAddress(req.Wallet) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid token or wallet address"})
 		return
 	}
 
-	// Verify that this is a valid reserve wallet
-	isReserve, err := h.blockchain.IsReserveWallet(req.Token, req.Wallet)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check reserve status: " + err.Error()})
-		return
-	}
-	if !isReserve {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Not a configured reserve wallet"})
-		return
-	}
-
-	// Verify the signature is valid before storing
-	isValid, err := h.blockchain.VerifySignatureOffchain(req.Token, req.Wallet, req.Signature, req.Payload)
+	// Verify the signature on-chain using VerifyProof
+	success, err := h.blockchain.VerifyProof(req.Token, req.Wallet, req.ValidUntil, req.Signature)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify signature: " + err.Error()})
 		return
 	}
-	if !isValid {
+
+	if !success {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid signature"})
 		return
 	}
 
 	// Store the signature
-	if err := h.sigService.StoreSignature(req.Token, req.Wallet, req.Signature, req.ValidUntil); err != nil {
+	err = h.sigService.StoreSignature(req.Token, req.Wallet, req.Signature, req.ValidUntil)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to store signature: " + err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"message":    "Signature stored successfully",
-		"token":      req.Token,
-		"wallet":     req.Wallet,
-		"validUntil": req.ValidUntil,
+	c.JSON(http.StatusOK, types.VerificationResponse{
+		Success:    true,
+		Token:      req.Token,
+		Wallet:     req.Wallet,
+		Signature:  req.Signature,
+		ValidUntil: req.ValidUntil,
 	})
 }

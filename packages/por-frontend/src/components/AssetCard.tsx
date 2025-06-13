@@ -4,6 +4,8 @@ import type { ExternalProvider } from '@ethersproject/providers';
 import type { AssetConfig, ReserveDetailsOutput, VerificationResult } from '../types';
 import { getReserveDetails, initiateOnchainVerification, submitSignature } from '../services/api';
 import { useWallet } from '../hooks/useWallet';
+import { signProofTypedData, getValidUntil } from '../utils/signing';
+import './AssetCard.css';
 
 interface AssetCardProps {
   asset: AssetConfig;
@@ -38,6 +40,7 @@ const AssetCard: React.FC<AssetCardProps> = ({ asset }) => {
   const [isSigningAndSubmitting, setIsSigningAndSubmitting] = useState<boolean>(false);
   const [verificationStatus, setVerificationStatus] = useState<{ success: boolean; message: string; signature?: string } | null>(null);
   const [verificationError, setVerificationError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
 
   const isReserveWallet = account?.toLowerCase() === asset.walletAddress.toLowerCase();
 
@@ -166,57 +169,54 @@ const AssetCard: React.FC<AssetCardProps> = ({ asset }) => {
       setIsVerifying(true);
       setVerificationStatus(null);
       setVerificationError(null);
-      
-      // Initiate verification
-      const result: VerificationResult = await initiateOnchainVerification(asset.tokenAddress, asset.walletAddress);
-      
-      // Show pending status
-      setVerificationStatus({
-        success: true,
-        message: 'Verification in progress...',
+      setSuccess(false);
+
+      // Get the provider and signer
+      const provider = new ethers.providers.Web3Provider(window.ethereum);
+      const chainId = await provider.getNetwork().then(n => n.chainId);
+
+      // Get the contract address from environment
+      const contractAddress = process.env.REACT_APP_CONTRACT_ADDRESS;
+      if (!contractAddress) {
+        throw new Error('Contract address not configured');
+      }
+
+      // Sign the proof using EIP-712
+      const validUntil = getValidUntil(30); // 30 days validity
+      const signature = await signProofTypedData(
+        provider,
+        contractAddress,
+        chainId,
+        {
+          token: asset.tokenAddress,
+          wallet: asset.walletAddress,
+          validUntil,
+        }
+      );
+
+      // Submit the proof to the backend
+      const response = await fetch(`${process.env.REACT_APP_API_URL}/submit-signature`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          token: asset.tokenAddress,
+          wallet: asset.walletAddress,
+          signature,
+          validUntil,
+        }),
       });
 
-      // Poll for verification status
-      let attempts = 0;
-      const maxAttempts = 10;
-      const pollInterval = 2000; // 2 seconds
-
-      while (attempts < maxAttempts) {
-        await new Promise(resolve => setTimeout(resolve, pollInterval));
-        
-        try {
-          const details = await getReserveDetails(asset.tokenAddress, asset.walletAddress);
-          const lastVerifiedTime = Number(details.lastVerified);
-          const currentTime = Math.floor(Date.now() / 1000);
-          
-          // Check if verification was successful (lastVerified is recent)
-          if (lastVerifiedTime > currentTime - 60) { // Within last minute
-            setVerificationStatus({
-              success: true,
-              message: 'Verification Successful',
-              signature: result.signatureUsed,
-            });
-            setDetails(details);
-            return;
-          }
-        } catch (err) {
-          console.error('Error polling verification status:', err);
-        }
-
-        attempts++;
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to verify proof');
       }
 
-      // If we get here, verification timed out
-      throw new Error('Verification timed out. Please refresh the page to check the status.');
-
+      setSuccess(true);
     } catch (err) {
-      let errorMessage = 'An unknown error occurred during verification.';
-      if (err instanceof Error) {
-        errorMessage = err.message;
-      }
-      setVerificationError(errorMessage);
-      setVerificationStatus({ success: false, message: 'Verification Failed' });
-      console.error(`Error verifying ${asset.displayName}:`, err);
+      console.error('Verification failed:', err);
+      setVerificationError(err instanceof Error ? err.message : 'Failed to verify proof');
     } finally {
       setIsVerifying(false);
     }
@@ -286,9 +286,9 @@ const AssetCard: React.FC<AssetCardProps> = ({ asset }) => {
             <button 
               onClick={handleVerify} 
               disabled={isVerifying || !details?.isConfigured || isLoading}
-              className="verify-button"
+              className={`verify-button ${success ? 'success' : ''}`}
             >
-              {isVerifying ? 'Verifying...' : (details?.isConfigured === false ? 'Not Configured' : (isLoading ? 'Loading Data...' : 'Verify On-Chain'))}
+              {isVerifying ? 'Verifying...' : success ? 'Verified!' : 'Verify Now'}
             </button>
 
             {/* Sign & Submit button - only shown if this is the reserve wallet */}

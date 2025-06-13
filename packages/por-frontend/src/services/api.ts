@@ -1,4 +1,4 @@
-import type { ReserveDetailsResponse, VerificationResult, AssetConfig } from '../types';
+import type { ReserveDetails, VerificationResult, AssetConfig } from '../types';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8082';
 
@@ -11,14 +11,11 @@ export async function getConfiguredAssets(): Promise<AssetConfig[]> {
   return response.json();
 }
 
-export async function getReserveDetails(
-  tokenAddress: string,
-  walletAddress: string
-): Promise<ReserveDetailsResponse> {
-  const response = await fetch(`${API_BASE_URL}/reserve-details/${tokenAddress}/${walletAddress}`);
+export async function getReserveDetails(token: string, wallet: string): Promise<ReserveDetails> {
+  const response = await fetch(`${API_BASE_URL}/reserve-details/${token}/${wallet}`);
   if (!response.ok) {
-    const errorData = await response.json().catch(() => ({ message: "Failed to fetch reserve details" }));
-    throw new Error(errorData.error || errorData.message || `HTTP error! status: ${response.status}`);
+    const data = await response.json();
+    throw new Error(data.error || 'Failed to fetch reserve details');
   }
   return response.json();
 }
@@ -55,39 +52,29 @@ export async function getContractConfig(): Promise<ContractConfig> {
   return response.json();
 }
 
-export async function submitSignature(data: {
-  token: string;
-  wallet: string;
-  signature: string;
-  payload: string;
-  validUntil: number;
-}): Promise<void> {
-  console.log('Submitting signature with data:', {
-    ...data,
-    payload: data.payload.replace('0x', '') // Log the actual payload being sent
-  });
-
-  const requestBody = {
-    token: data.token,
-    wallet: data.wallet,
-    signature: data.signature,
-    payload: data.payload.replace('0x', ''), // Remove 0x prefix if present
-    validUntil: data.validUntil,
-  };
-
-  console.log('Request body:', JSON.stringify(requestBody, null, 2));
-
-  const response = await fetch(`${API_BASE_URL}/signature/submit`, {
+export async function submitSignature(
+  token: string,
+  wallet: string,
+  signature: string,
+  validUntil: number
+): Promise<VerificationResult> {
+  const response = await fetch(`${API_BASE_URL}/submit-signature`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify(requestBody),
+    body: JSON.stringify({
+      token,
+      wallet,
+      signature,
+      validUntil,
+    }),
   });
 
   if (!response.ok) {
-    const errorData = await response.json().catch(() => ({ message: "Failed to submit signature" }));
-    console.error('Error response:', errorData);
-    throw new Error(errorData.error || errorData.message || `Failed to submit signature: ${response.statusText}`);
+    const data = await response.json();
+    throw new Error(data.error || 'Failed to submit signature');
   }
+
+  return response.json();
 } 

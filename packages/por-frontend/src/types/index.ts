@@ -1,12 +1,21 @@
+import type { ExternalProvider } from '@ethersproject/providers';
+
+declare global {
+  interface Window {
+    ethereum?: ExternalProvider;
+  }
+}
+
 export interface AssetConfig {
-  id: string; // e.g., 'xdc', 'usdc'
-  displayName: string; // e.g., 'XDC', 'USDC.e'
+  address: string;
   tokenAddress: string;
   walletAddress: string;
-  logoUrl?: string; // Optional: for displaying token logo
-  isNativeToken?: boolean;  // Flag to indicate if this is native XDC token
-  name: string;
   symbol: string;
+  name: string;
+  decimals: number;
+  icon?: string;
+  isNativeToken?: boolean;
+  displayName?: string;
 }
 
 // Matches the backend's service.ReserveDetailsOutput
@@ -20,11 +29,9 @@ export interface ReserveDetailsOutput {
 
 // Matches the relevant parts of the backend's verification response
 export interface VerificationResult {
-  token: string;
-  wallet: string;
+  success: boolean;
   signatureUsed?: string;
   message?: string;
-  error?: string;
 }
 
 // For the /reserve-details/:token/:wallet endpoint response structure
@@ -38,14 +45,10 @@ export interface ReserveDetailsResponse {
   lastVerified: string;
 }
 
-// Ethereum provider type
-declare global {
-  interface Window {
-    ethereum?: {
-      isMetaMask?: boolean;
-      request: (args: { method: string; params: any[] }) => Promise<any>;
-      on: (event: string, handler: (params?: any) => void) => void;
-      removeListener: (event: string, handler: (params?: any) => void) => void;
-    };
-  }
+export interface ReserveDetails {
+  isConfigured: boolean;
+  name: string;
+  symbol: string;
+  balance: string;
+  lastVerified: string;
 } 

@@ -154,9 +154,9 @@ export const useWallet = () => {
     };
 
     // Set up event listeners
-    window.ethereum.on('accountsChanged', handleAccountsChanged);
-    window.ethereum.on('chainChanged', handleChainChanged);
-    window.ethereum.on('disconnect', handleDisconnect);
+    (window.ethereum as any)?.on?.('accountsChanged', handleAccountsChanged);
+    (window.ethereum as any)?.on?.('chainChanged', handleChainChanged);
+    (window.ethereum as any)?.on?.('disconnect', handleDisconnect);
 
     // Run initial setup
     setupInitialState();
@@ -164,9 +164,9 @@ export const useWallet = () => {
     // Cleanup function
     return () => {
       if (!window.ethereum) return;
-      window.ethereum.removeListener('accountsChanged', handleAccountsChanged);
-      window.ethereum.removeListener('chainChanged', handleChainChanged);
-      window.ethereum.removeListener('disconnect', handleDisconnect);
+      (window.ethereum as any)?.removeListener?.('accountsChanged', handleAccountsChanged);
+      (window.ethereum as any)?.removeListener?.('chainChanged', handleChainChanged);
+      (window.ethereum as any)?.removeListener?.('disconnect', handleDisconnect);
     };
   }, [handleAccountsChanged, handleChainChanged, handleDisconnect]);
 

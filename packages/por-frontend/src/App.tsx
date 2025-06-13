@@ -5,13 +5,11 @@ import AssetCard from './components/AssetCard';
 import { getConfiguredAssets } from './services/api';
 import type { AssetConfig } from './types'; // Import AssetConfig type
 import { WalletConnect } from './components/WalletConnect';
-import { useWallet } from './hooks/useWallet';
 
 const App: React.FC = () => {
   const [assets, setAssets] = useState<AssetConfig[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
-  const { isConnected } = useWallet();
 
   useEffect(() => {
     const loadAssets = async () => {

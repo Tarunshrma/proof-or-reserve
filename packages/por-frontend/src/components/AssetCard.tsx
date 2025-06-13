@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { ethers, utils } from 'ethers';
+import { ethers } from 'ethers';
 import type { AssetConfig, ReserveDetailsOutput } from '../types';
 import { getReserveDetails, submitSignature, API_BASE_URL } from '../services/api';
 import { useWallet } from '../hooks/useWallet';
@@ -10,8 +10,6 @@ import ProofOfReserveArtifact from '../config/ProofOfReserve.json';
 interface AssetCardProps {
   asset: AssetConfig;
 }
-
-const NATIVE_XDC_ADDRESS = "0x0000000000000000000000000000000000000000";
 
 // Helper function to truncate a string (e.g., Ethereum address or signature)
 const truncateString = (str: string | undefined, startChars: number, endChars: number): string => {

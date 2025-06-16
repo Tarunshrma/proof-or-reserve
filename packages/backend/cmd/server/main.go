@@ -84,6 +84,7 @@ func main() {
 
 	// Signature management
 	r.POST("/signature/submit", handler.SubmitSignature)
+	r.POST("/signature/txhash", handler.UpdateLastVerifiedTxHash)
 
 	// Reserve details and verification
 	r.GET("/reserve-details/:token/:wallet", handler.GetReserveDetails)

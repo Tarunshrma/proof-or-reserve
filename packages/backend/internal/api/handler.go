@@ -160,7 +160,21 @@ func (h *Handler) GetReserveDetails(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, details)
+	// Fetch the signature record to get lastVerifiedTxHash
+	record, err := h.sigService.GetSignature(token, wallet)
+	lastVerifiedTxHash := ""
+	if err == nil && record != nil {
+		lastVerifiedTxHash = record.LastVerifiedTxHash
+	}
+
+	type detailsWithTxHash struct {
+		*types.ReserveDetailsOutput
+		LastVerifiedTxHash string `json:"lastVerifiedTxHash,omitempty"`
+	}
+	c.JSON(http.StatusOK, detailsWithTxHash{
+		ReserveDetailsOutput: details,
+		LastVerifiedTxHash:   lastVerifiedTxHash,
+	})
 }
 
 // InitiateOnchainVerificationRequest defines the expected JSON body for the verification request.
@@ -409,4 +423,43 @@ func (h *Handler) SubmitSignature(c *gin.Context) {
 		Signature:  req.Signature,
 		ValidUntil: req.ValidUntil,
 	})
+}
+
+// UpdateLastVerifiedTxHashRequest defines the expected JSON body for updating the tx hash
+type UpdateLastVerifiedTxHashRequest struct {
+	Token  string `json:"token" binding:"required"`
+	Wallet string `json:"wallet" binding:"required"`
+	TxHash string `json:"txHash" binding:"required"`
+}
+
+// UpdateLastVerifiedTxHash updates the last verified transaction hash for a signature
+func (h *Handler) UpdateLastVerifiedTxHash(c *gin.Context) {
+	var req UpdateLastVerifiedTxHashRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload: " + err.Error()})
+		return
+	}
+
+	if !common.IsHexAddress(req.Token) || !common.IsHexAddress(req.Wallet) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid token or wallet address"})
+		return
+	}
+
+	// Update the signature record
+	record, err := h.sigService.GetSignature(req.Token, req.Wallet)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve signature: " + err.Error()})
+		return
+	}
+	if record == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "No signature found for this token/wallet pair"})
+		return
+	}
+	record.LastVerifiedTxHash = req.TxHash
+	err = h.sigService.SaveSignature(record)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update signature: " + err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true})
 }

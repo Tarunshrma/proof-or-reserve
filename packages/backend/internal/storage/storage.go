@@ -112,11 +112,12 @@ func (s *JSONStorage) Delete(key string) {
 
 // SignatureRecord represents a stored signature
 type SignatureRecord struct {
-	Token       string    `json:"token"`
-	Wallet      string    `json:"wallet"`
-	Signature   string    `json:"signature"`
-	ValidUntil  uint64    `json:"validUntil"`
-	GeneratedAt time.Time `json:"generatedAt"`
+	Token              string    `json:"token"`
+	Wallet             string    `json:"wallet"`
+	Signature          string    `json:"signature"`
+	ValidUntil         uint64    `json:"validUntil"`
+	GeneratedAt        time.Time `json:"generatedAt"`
+	LastVerifiedTxHash string    `json:"lastVerifiedTxHash,omitempty"`
 }
 
 // SignatureStorage provides storage for signature records

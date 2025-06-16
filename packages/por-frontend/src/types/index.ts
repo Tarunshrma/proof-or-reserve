@@ -27,6 +27,7 @@ export interface ReserveDetailsOutput {
   symbol: string;
   balance: string; // Backend sends as string after big.Int conversion
   lastVerified: string; // Backend sends as string
+  lastVerifiedTxHash?: string; // Optional transaction hash for last verification
 }
 
 // Matches the relevant parts of the backend's verification response

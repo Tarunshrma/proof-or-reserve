@@ -54,6 +54,10 @@ func (s *signatureServiceImpl) GetSignature(token, wallet string) (*storage.Sign
 	return s.signatureStore.GetSignature(token, wallet)
 }
 
+func (s *signatureServiceImpl) SaveSignature(record *storage.SignatureRecord) error {
+	return s.signatureStore.SaveSignature(record)
+}
+
 // IsSignatureValid checks if a signature exists and is still valid.
 func (s *signatureServiceImpl) IsSignatureValid(token, wallet string) (bool, uint64, error) {
 	record, err := s.signatureStore.GetSignature(token, wallet)

@@ -51,6 +51,7 @@ const AssetCard: React.FC<AssetCardProps> = ({ asset }) => {
 
   const explorerBaseUrl = import.meta.env.VITE_EXPLORER_BASE_URL || 'https://explorer.apothem.network';
   const getExplorerAddressUrl = (address: string) => `${explorerBaseUrl}/address/${address}`;
+  const getExplorerTxUrl = (txHash: string) => `${explorerBaseUrl}/tx/${txHash}`;
 
   const handleSignAndSubmit = async () => {
     if (!window.ethereum || !isReserveWallet || !account) return;
@@ -175,12 +176,26 @@ const AssetCard: React.FC<AssetCardProps> = ({ asset }) => {
       // 3. Wait for the transaction to be mined
       const receipt = await tx.wait();
       if (receipt.status === 1) {
+        // Update backend with tx hash
+        await fetch(`${API_BASE_URL}/signature/txhash`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            token: asset.tokenAddress,
+            wallet: asset.walletAddress,
+            txHash: tx.hash,
+          }),
+        });
         setVerificationStatus({
           success: true,
           message: 'Signature verified on-chain successfully!',
           txHash: tx.hash,
         });
         setSuccess(true);
+        // Optionally refresh details to show updated tx hash
+        setTimeout(() => {
+          fetchAssetDetails();
+        }, 2000);
       } else {
         throw new Error('Transaction failed on-chain');
       }
@@ -252,7 +267,11 @@ const AssetCard: React.FC<AssetCardProps> = ({ asset }) => {
           <p><strong>Balance:</strong> {formatBalance(details.balance)}</p>
           <p className="token-address"><strong>Token Address:</strong> <a href={getExplorerAddressUrl(asset.tokenAddress)} target="_blank" rel="noopener noreferrer">{truncateString(asset.tokenAddress, 6, 4)}</a></p>
           <p className="wallet-address"><strong>Wallet Address:</strong> <a href={getExplorerAddressUrl(asset.walletAddress)} target="_blank" rel="noopener noreferrer">{truncateString(asset.walletAddress, 6, 4)}</a></p>
-          <p><strong>Last Verified:</strong> {formatTimestamp(details.lastVerified)}</p>
+          <p><strong>Last Verified:</strong> {formatTimestamp(details.lastVerified)}
+            {details.lastVerifiedTxHash && (
+              <span className="tx-link"> (<a href={getExplorerTxUrl(details.lastVerifiedTxHash)} target="_blank" rel="noopener noreferrer">View Tx</a>)</span>
+            )}
+          </p>
 
           <div className="action-buttons">
             {/* Verify button */}

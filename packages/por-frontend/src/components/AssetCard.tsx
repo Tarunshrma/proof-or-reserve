@@ -49,6 +49,9 @@ const AssetCard: React.FC<AssetCardProps> = ({ asset }) => {
 
   const isReserveWallet = account?.toLowerCase() === asset.walletAddress.toLowerCase();
 
+  const explorerBaseUrl = import.meta.env.VITE_EXPLORER_BASE_URL || 'https://explorer.apothem.network';
+  const getExplorerAddressUrl = (address: string) => `${explorerBaseUrl}/address/${address}`;
+
   const handleSignAndSubmit = async () => {
     if (!window.ethereum || !isReserveWallet || !account) return;
 
@@ -247,8 +250,8 @@ const AssetCard: React.FC<AssetCardProps> = ({ asset }) => {
         <>
           <p><strong>Symbol:</strong> {details.symbol || 'N/A'}</p>
           <p><strong>Balance:</strong> {formatBalance(details.balance)}</p>
-          <p className="token-address"><strong>Token Address:</strong> {truncateString(asset.tokenAddress, 6, 4)}</p>
-          <p className="wallet-address"><strong>Wallet Address:</strong> {truncateString(asset.walletAddress, 6, 4)}</p>
+          <p className="token-address"><strong>Token Address:</strong> <a href={getExplorerAddressUrl(asset.tokenAddress)} target="_blank" rel="noopener noreferrer">{truncateString(asset.tokenAddress, 6, 4)}</a></p>
+          <p className="wallet-address"><strong>Wallet Address:</strong> <a href={getExplorerAddressUrl(asset.walletAddress)} target="_blank" rel="noopener noreferrer">{truncateString(asset.walletAddress, 6, 4)}</a></p>
           <p><strong>Last Verified:</strong> {formatTimestamp(details.lastVerified)}</p>
 
           <div className="action-buttons">

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import './App.css';
 // import { ASSETS_CONFIG } from './config/assets'; // Will be removed
 import AssetCard from './components/AssetCard';
@@ -10,6 +10,10 @@ const App: React.FC = () => {
   const [assets, setAssets] = useState<AssetConfig[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [globalMessage, setGlobalMessage] = useState<{ type: 'success' | 'error', text: React.ReactNode } | null>(null);
+  const [fadeOut, setFadeOut] = useState(false);
+  const fadeTimeout = useRef<NodeJS.Timeout | null>(null);
+  const hideTimeout = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     const loadAssets = async () => {
@@ -34,6 +38,23 @@ const App: React.FC = () => {
     loadAssets();
   }, []);
 
+  useEffect(() => {
+    if (!globalMessage) return;
+    setFadeOut(false);
+    if (fadeTimeout.current) clearTimeout(fadeTimeout.current);
+    if (hideTimeout.current) clearTimeout(hideTimeout.current);
+    fadeTimeout.current = setTimeout(() => {
+      setFadeOut(true);
+    }, 1500); // Start fade out after 1.5s
+    hideTimeout.current = setTimeout(() => {
+      setGlobalMessage(null);
+    }, 2000); // Remove after 2s
+    return () => {
+      if (fadeTimeout.current) clearTimeout(fadeTimeout.current);
+      if (hideTimeout.current) clearTimeout(hideTimeout.current);
+    };
+  }, [globalMessage]);
+
   return (
     <div className="app">
       <header>
@@ -43,6 +64,41 @@ const App: React.FC = () => {
         </div>
       </header>
 
+      {globalMessage && (
+        <div className={`global-message ${globalMessage.type}${fadeOut ? ' fade-out' : ''}`} style={{
+          margin: '24px auto 0 auto',
+          maxWidth: 600,
+          padding: '16px',
+          borderRadius: '8px',
+          fontWeight: 'bold',
+          textAlign: 'center',
+          background: globalMessage.type === 'success' ? '#e6ffed' : '#fff1f0',
+          color: globalMessage.type === 'success' ? '#1a7f37' : '#cf1322',
+          border: globalMessage.type === 'success' ? '1px solid #b7eb8f' : '1px solid #ffa39e',
+          position: 'relative'
+        }}>
+          <button
+            onClick={() => setGlobalMessage(null)}
+            style={{
+              position: 'absolute',
+              top: 8,
+              right: 12,
+              background: 'transparent',
+              border: 'none',
+              fontSize: 20,
+              fontWeight: 'bold',
+              color: '#888',
+              cursor: 'pointer',
+              lineHeight: 1
+            }}
+            aria-label="Close notification"
+          >
+            ×
+          </button>
+          {globalMessage.text}
+        </div>
+      )}
+
       <main>
         <div className="assets-grid">
           {isLoading && <p style={{ textAlign: 'center', fontSize: '1.2rem' }}>Loading asset configurations...</p>}
@@ -51,7 +107,7 @@ const App: React.FC = () => {
             <p style={{ textAlign: 'center', fontSize: '1.2rem' }}>No asset configurations found.</p>
           )}
           {!isLoading && !error && assets.map(asset => (
-            <AssetCard key={asset.id} asset={asset} />
+            <AssetCard key={asset.id} asset={asset} setGlobalMessage={setGlobalMessage} />
           ))}
         </div>
       </main>

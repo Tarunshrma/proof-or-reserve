@@ -9,6 +9,7 @@ import ProofOfReserveArtifact from '../config/ProofOfReserve.json';
 
 interface AssetCardProps {
   asset: AssetConfig;
+  setGlobalMessage?: (msg: { type: 'success' | 'error', text: React.ReactNode } | null) => void;
 }
 
 // Helper function to truncate a string (e.g., Ethereum address or signature)
@@ -33,18 +34,19 @@ function getFriendlyErrorMessage(error: any): string {
   if (msg.includes('UNSUPPORTED_OPERATION')) {
     return 'Wallet operation not supported. Please reconnect your wallet.';
   }
+  if (msg.includes('Reserve balance below threshold')) {
+    return 'The reserve wallet does not meet the minimum required balance. Please ensure the wallet holds at least the required threshold before verifying.';
+  }
   return msg || 'Unknown error. Please try again.';
 }
 
-const AssetCard: React.FC<AssetCardProps> = ({ asset }) => {
+const AssetCard: React.FC<AssetCardProps> = ({ asset, setGlobalMessage }) => {
   const { account } = useWallet();
   const [details, setDetails] = useState<ReserveDetailsOutput | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [isVerifying, setIsVerifying] = useState<boolean>(false);
   const [isSigningAndSubmitting, setIsSigningAndSubmitting] = useState<boolean>(false);
-  const [verificationStatus, setVerificationStatus] = useState<{ success: boolean; message: string; signature?: string; txHash?: string } | null>(null);
-  const [verificationError, setVerificationError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
 
   const isReserveWallet = account?.toLowerCase() === asset.walletAddress.toLowerCase();
@@ -57,7 +59,7 @@ const AssetCard: React.FC<AssetCardProps> = ({ asset }) => {
     if (!window.ethereum || !isReserveWallet || !account) return;
 
     setIsSigningAndSubmitting(true);
-    setVerificationError(null);
+    if (setGlobalMessage) setGlobalMessage(null);
 
     try {
       const provider = new ethers.providers.Web3Provider(window.ethereum as any);
@@ -68,7 +70,10 @@ const AssetCard: React.FC<AssetCardProps> = ({ asset }) => {
         throw new Error('Contract address not configured');
       }
 
+      //TODO: Move this in reserve config in backend. 
       const validUntil = getValidUntil(30); // 30 days validity
+
+      console.log('Signing proof typed data for token:', asset.tokenAddress, 'wallet:', asset.walletAddress, 'validUntil:', validUntil);
       const signature = await signProofTypedData(
         provider,
         contractAddress,
@@ -80,6 +85,7 @@ const AssetCard: React.FC<AssetCardProps> = ({ asset }) => {
         }
       );
 
+      console.log('Submitting signature for token:', asset.tokenAddress, 'wallet:', asset.walletAddress, 'signature:', signature, 'validUntil:', validUntil);
       await submitSignature(
         asset.tokenAddress,
         asset.walletAddress,
@@ -87,17 +93,25 @@ const AssetCard: React.FC<AssetCardProps> = ({ asset }) => {
         validUntil
       );
 
-      setVerificationStatus({
-        success: true,
-        message: 'Signature submitted and stored successfully! You can now verify on-chain.',
-      });
+      console.log('Signature submitted and stored successfully!');
+
+      if (setGlobalMessage) {
+        setGlobalMessage({
+          type: 'success',
+          text: 'Signature submitted and stored successfully! You can now verify on-chain.'
+        });
+      }
+
+      console.log('Fetching asset details...');
 
       setTimeout(() => {
         fetchAssetDetails();
       }, 2000);
     } catch (err) {
       console.error('Error signing and submitting:', err);
-      setVerificationError(getFriendlyErrorMessage(err));
+      if (setGlobalMessage) {
+        setGlobalMessage({ type: 'error', text: getFriendlyErrorMessage(err) });
+      }
     } finally {
       setIsSigningAndSubmitting(false);
     }
@@ -132,24 +146,10 @@ const AssetCard: React.FC<AssetCardProps> = ({ asset }) => {
     fetchAssetDetails();
   }, [fetchAssetDetails]);
 
-  // Auto-hide success messages
-  useEffect(() => {
-    let timer: ReturnType<typeof setTimeout>;
-    if (verificationStatus && verificationStatus.success) {
-      timer = setTimeout(() => {
-        setVerificationStatus(null);
-      }, 4000);
-    }
-    return () => {
-      clearTimeout(timer);
-    };
-  }, [verificationStatus]);
-
   const handleVerify = async () => {
     try {
       setIsVerifying(true);
-      setVerificationStatus(null);
-      setVerificationError(null);
+      if (setGlobalMessage) setGlobalMessage(null);
       setSuccess(false);
 
       // 1. Fetch the stored signature and validUntil from backend
@@ -174,11 +174,25 @@ const AssetCard: React.FC<AssetCardProps> = ({ asset }) => {
         signature
       );
       const getExplorerTxUrl = (txHash: string) => `https://explorer.apothem.network/tx/${txHash}`;
-      setVerificationStatus({
-        success: true,
-        message: `Signature verified on-chain successfully!\n\nView transaction: <a href='${getExplorerTxUrl(tx.hash)}' target='_blank' rel='noopener noreferrer'>${tx.hash.slice(0, 10)}...</a>`,
-        txHash: tx.hash,
-      });
+      setSuccess(true);
+      if (setGlobalMessage) {
+        setGlobalMessage({
+          type: 'success',
+          text: (
+            <>
+              Signature verified on-chain successfully.<br />
+              <a
+                href={getExplorerTxUrl(tx.hash)}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ color: '#1a7f37', fontWeight: 'bold', textDecoration: 'underline', display: 'inline-block', marginTop: 8 }}
+              >
+                View transaction: {tx.hash.slice(0, 8)}...{tx.hash.slice(-4)}
+              </a>
+            </>
+          )
+        });
+      }
 
       // 3. Wait for the transaction to be mined
       const receipt = await tx.wait();
@@ -193,13 +207,12 @@ const AssetCard: React.FC<AssetCardProps> = ({ asset }) => {
             txHash: tx.hash,
           }),
         });
-        setVerificationStatus({
-          success: true,
-          message: 'Signature verified on-chain successfully!',
-          txHash: tx.hash,
-        });
-        setSuccess(true);
-        // Optionally refresh details to show updated tx hash
+        if (setGlobalMessage) {
+          setGlobalMessage({
+            type: 'success',
+            text: 'Signature verified on-chain successfully!'
+          });
+        }
         setTimeout(() => {
           fetchAssetDetails();
         }, 2000);
@@ -208,11 +221,9 @@ const AssetCard: React.FC<AssetCardProps> = ({ asset }) => {
       }
     } catch (err) {
       console.error('Verification failed:', err);
-      setVerificationStatus({
-        success: false,
-        message: `Verification failed: ${getFriendlyErrorMessage(err)}`,
-      });
-      setVerificationError(getFriendlyErrorMessage(err));
+      if (setGlobalMessage) {
+        setGlobalMessage({ type: 'error', text: getFriendlyErrorMessage(err) });
+      }
     } finally {
       setIsVerifying(false);
     }
@@ -294,13 +305,6 @@ const AssetCard: React.FC<AssetCardProps> = ({ asset }) => {
       {/* Status Messages */}
       {isLoading && <p className="status-message loading">Loading details...</p>}
       {error && !isLoading && <p className="status-message error">Error fetching details: {error}</p>}
-      {verificationStatus && (
-        <div className={`status-message ${verificationStatus.success ? 'success' : 'error'}`}
-             dangerouslySetInnerHTML={{ __html: verificationStatus.message }} />
-      )}
-      {verificationError && !verificationStatus && (
-         <p className="status-message error">Verification Failed: {verificationError}</p>
-      )}
       {!isLoading && details && !details.isConfigured && (
         <p className="status-message error" style={{marginTop: '10px'}}>
           This asset configuration is not found or not active in the smart contract.

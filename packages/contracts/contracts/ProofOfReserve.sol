@@ -28,8 +28,13 @@ contract ProofOfReserve {
     
     // State variables
     address public owner;
-    mapping(address => mapping(address => bool)) public isReserveWallet;    // token => wallet => isActive
-    mapping(address => mapping(address => uint256)) public lastVerifiedTimestamp;  // token => wallet => timestamp
+    struct ReserveConfig {
+        bool isConfigured;
+        uint256 target;
+        uint256 thresholdPercent;
+        uint256 lastVerifiedTimestamp;
+    }
+    mapping(address => mapping(address => ReserveConfig)) public reserveConfigs; // token => wallet => config
 
     // Events
     event ReserveConfigured(address indexed token, address indexed wallet);
@@ -96,11 +101,18 @@ contract ProofOfReserve {
      */
     function configureReserve(
         address token,
-        address wallet
+        address wallet,
+        uint256 target,
+        uint256 thresholdPercent
     ) external onlyOwner {
         require(wallet != address(0), "Invalid wallet address");
-        
-        isReserveWallet[token][wallet] = true;
+        require(thresholdPercent < 100, "Threshold must be < 100");
+        ReserveConfig storage config = reserveConfigs[token][wallet];
+        require(!config.isConfigured, "Reserve already configured");
+        config.isConfigured = true;
+        config.target = target;
+        config.thresholdPercent = thresholdPercent;
+        config.lastVerifiedTimestamp = 0;
         emit ReserveConfigured(token, wallet);
     }
 
@@ -110,8 +122,9 @@ contract ProofOfReserve {
      * @param wallet The wallet address to deactivate
      */
     function deactivateReserve(address token, address wallet) external onlyOwnerOrWallet(wallet) {
-        require(isReserveWallet[token][wallet], "Reserve not active");
-        isReserveWallet[token][wallet] = false;
+        ReserveConfig storage config = reserveConfigs[token][wallet];
+        require(config.isConfigured, "Reserve not active");
+        config.isConfigured = false;
         emit ReserveDeactivated(token, wallet);
     }
 
@@ -121,7 +134,7 @@ contract ProofOfReserve {
      * @param wallet The reserve wallet address
      */
     function getReserveBalance(address token, address wallet) external view returns (uint256) {
-        require(isReserveWallet[token][wallet], "Reserve not active");
+        require(reserveConfigs[token][wallet].isConfigured, "Reserve not active");
         if (token == address(0)) {
             return wallet.balance;
         } else {
@@ -143,9 +156,14 @@ contract ProofOfReserve {
         uint256 validUntil,
         bytes memory signature
     ) external returns (bool success) {
-        require(isReserveWallet[token][wallet], "Reserve not active");
+        ReserveConfig storage config = reserveConfigs[token][wallet];
+        require(config.isConfigured, "Reserve not active");
         require(validUntil > block.timestamp, "Proof has expired");
-        
+        uint256 currentBalance = (token == address(0)) ? wallet.balance : IERC20(token).balanceOf(wallet);
+        if (config.target > 0) {
+            uint256 minRequired = config.target * (100 - config.thresholdPercent) / 100;
+            require(currentBalance >= minRequired, "Reserve balance below threshold");
+        }
         // Verify EIP-712 signature
         bytes32 digest = keccak256(
             abi.encodePacked(
@@ -161,14 +179,11 @@ contract ProofOfReserve {
                 )
             )
         );
-        
         address signer = recoverSigner(digest, signature);
         success = (signer == wallet);
-        
         if (success) {
-            lastVerifiedTimestamp[token][wallet] = block.timestamp;
+            config.lastVerifiedTimestamp = block.timestamp;
         }
-        
         emit ProofVerified(token, wallet, success);
         return success;
     }
@@ -211,11 +226,12 @@ contract ProofOfReserve {
         address token,
         address wallet
     ) external view returns (ReserveDetails memory details) {
-        bool configured = isReserveWallet[token][wallet];
+        ReserveConfig storage config = reserveConfigs[token][wallet];
+        bool configured = config.isConfigured;
         string memory tokenName = "";
         string memory tokenSymbol = "";
         uint256 bal = 0;
-        uint256 verifiedTime = 0;
+        uint256 verifiedTime = config.lastVerifiedTimestamp;
 
         if (configured) {
             if (token == address(0)) {
@@ -236,7 +252,7 @@ contract ProofOfReserve {
                     bal = _balance;
                 } catch { /* Fails silently, bal remains 0 */ }
             }
-            verifiedTime = lastVerifiedTimestamp[token][wallet];
+            verifiedTime = config.lastVerifiedTimestamp;
         }
 
         details = ReserveDetails({

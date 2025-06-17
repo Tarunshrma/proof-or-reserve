@@ -408,3 +408,15 @@ main {
 .global-message.fade-out {
   opacity: 0;
 }
+
+.header-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.app-logo {
+  height: 38px;
+  width: 38px;
+  border-radius: 8px;
+  object-fit: contain;
+}

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import './App.css';
+import logo from './assets/logo.png';
 // import { ASSETS_CONFIG } from './config/assets'; // Will be removed
 import AssetCard from './components/AssetCard';
 import { getConfiguredAssets } from './services/api';
@@ -59,7 +60,10 @@ const App: React.FC = () => {
     <div className="app">
       <header>
         <div className="header-content">
-          <h1>Proof of Reserve</h1>
+          <div className="header-title">
+            <img src={logo} alt="Logo" className="app-logo" />
+            <h1>Proof of Reserve</h1>
+          </div>
           <WalletConnect />
         </div>
       </header>

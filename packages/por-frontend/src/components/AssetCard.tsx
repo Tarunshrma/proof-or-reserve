@@ -108,6 +108,13 @@ const AssetCard: React.FC<AssetCardProps> = ({ asset }) => {
       setIsLoading(true);
       setError(null);
       const data = await getReserveDetails(asset.tokenAddress, asset.walletAddress);
+      console.log('Reserve details:', {
+        target: data.target,
+        targetType: typeof data.target,
+        tokenAddress: asset.tokenAddress,
+        symbol: data.symbol,
+        rawData: data
+      });
       setDetails(data);
     } catch (err) {
       if (err instanceof Error) {
@@ -214,11 +221,55 @@ const AssetCard: React.FC<AssetCardProps> = ({ asset }) => {
   const formatBalance = (balance?: string | number) => {
     if (balance === undefined || balance === null) return 'N/A';
     try {
-      return (BigInt(balance) / BigInt(10 ** 18)).toString() + ' ' + (details?.symbol || '');
+      const balanceBigInt = BigInt(balance);
+      if (balanceBigInt === BigInt(0)) return '0 ' + (details?.symbol || '');
+      return (balanceBigInt / BigInt(10 ** 18)).toString() + ' ' + (details?.symbol || '');
     } catch (e) {
       console.error("Error formatting balance:", e);
       return 'Error';
     }
+  };
+
+  const formatTarget = (target?: string | number) => {
+    if (target === undefined || target === null) return 'N/A';
+    try {
+      // For XDC (native token), the target is already in the correct unit
+      if (asset.tokenAddress === '0x0000000000000000000000000000000000000000') {
+        return target.toString() + ' ' + (details?.symbol || '');
+      }
+
+      // For CGO and other tokens, use the value as is since it's already in the correct unit
+      return target.toString() + ' ' + (details?.symbol || '');
+    } catch (e) {
+      console.error("Error formatting target:", e);
+      return 'Error';
+    }
+  };
+
+  const calculateReserveRatio = () => {
+    if (!details?.balance || !details?.target) return null;
+    try {
+      // Convert balance from wei to base unit
+      const balance = BigInt(details.balance) / BigInt(10 ** 18);
+      const target = BigInt(details.target);
+      if (target === BigInt(0)) return null;
+      return Number((balance * BigInt(100)) / target);
+    } catch (e) {
+      console.error("Error calculating reserve ratio:", e);
+      return null;
+    }
+  };
+
+  const getReserveRatioColor = (ratio: number) => {
+    return ratio < 100 ? 'red' : 'green';
+  };
+
+  const getCardBorderStyle = (ratio: number | null) => {
+    if (ratio === null) return {};
+    return ratio < 100 ? {
+      border: '2px solid #ff4444',
+      boxShadow: '0 0 10px rgba(255, 68, 68, 0.3)'
+    } : {};
   };
 
   const formatTimestamp = (timestamp?: string | number) => {
@@ -232,7 +283,7 @@ const AssetCard: React.FC<AssetCardProps> = ({ asset }) => {
   };
 
   return (
-    <div className="asset-card">
+    <div className="asset-card" style={getCardBorderStyle(calculateReserveRatio())}>
       <div className="info-tooltip-container card-info-tooltip">
         <span className="info-icon">ⓘ</span>
         <div className="info-tooltip-banner">
@@ -272,8 +323,24 @@ const AssetCard: React.FC<AssetCardProps> = ({ asset }) => {
               <span className="tx-link"> (<a href={getExplorerTxUrl(details.lastVerifiedTxHash)} target="_blank" rel="noopener noreferrer">View Tx</a>)</span>
             )}
           </p>
+          {details.target !== undefined && details.target !== null && (
+            <>
+              {calculateReserveRatio() !== null && (
+                <p>
+                  <strong>Reserve Ratio:</strong>{' '}
+                  <span style={{ 
+                    color: getReserveRatioColor(calculateReserveRatio()!), 
+                    fontWeight: 'bold',
+                    fontSize: '1.1em'
+                  }}>
+                    {calculateReserveRatio()}%
+                  </span>
+                </p>
+              )}
+            </>
+          )}
 
-          <div className="action-buttons">
+          <div className="action-buttons" style={{ paddingBottom: isReserveWallet ? '20px' : '0' }}>
             {/* Verify button */}
             <button 
               onClick={handleVerify} 

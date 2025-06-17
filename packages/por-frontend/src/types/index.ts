@@ -28,6 +28,8 @@ export interface ReserveDetailsOutput {
   balance: string; // Backend sends as string after big.Int conversion
   lastVerified: string; // Backend sends as string
   lastVerifiedTxHash?: string; // Optional transaction hash for last verification
+  target?: string; // New: reserve target as string
+  thresholdPercent?: number; // New: threshold percent
 }
 
 // Matches the relevant parts of the backend's verification response
@@ -55,4 +57,7 @@ export interface ReserveDetails {
   balance: string;
   lastVerified: string;
   tokenAddress?: string;
+  lastVerifiedTxHash?: string;
+  target?: string;
+  thresholdPercent?: number;
 } 

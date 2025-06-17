@@ -2,7 +2,15 @@
   "reserves": [
     {
       "token": "0x0000000000000000000000000000000000000000",
-      "wallet": "0xfA4E7cFcDb5C280f887e8b0dBBFa4bDea19C3f7E"
+      "wallet": "0xfA4E7cFcDb5C280f887e8b0dBBFa4bDea19C3f7E",
+      "target": "10",
+      "thresholdPercent": 2
+    },
+    {
+      "token": "0x8f9920283470F52128bF11B0c14E798bE704fD15",
+      "wallet": "0xfA4E7cFcDb5C280f887e8b0dBBFa4bDea19C3f7E",
+      "target": "10000000",
+      "thresholdPercent": 2
     }
   ]
 }

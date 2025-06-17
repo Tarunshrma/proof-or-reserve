@@ -27,12 +27,12 @@ const config: HardhatUserConfig = {
   },
   networks: {
     apothem: {
-      url: process.env.XDC_APOTHEM_RPC || "https://rpc.apothem.network",
+      url: process.env.XDC_RPC || "https://rpc.apothem.network",
       chainId: 51,
       accounts: [PRIVATE_KEY]
     },
     xdc: {
-      url: process.env.XDC_APOTHEM_RPC || "https://earpc.xinfin.network",
+      url: process.env.XDC_RPC || "https://earpc.xinfin.network",
       chainId: 50,
       accounts: [PRIVATE_KEY]
     }

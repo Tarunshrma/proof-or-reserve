@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"log"
+	"math/big"
 	"os"
 
 	"github.com/Tarunshrma/proof-or-reserve/internal/config"
@@ -66,7 +67,9 @@ func main() {
 		}
 
 		// Configure the reserve
-		if err := blockchainSvc.ConfigureReserve(reserve.Token, reserve.Wallet); err != nil {
+		target := new(big.Int)
+		target.SetString(reserve.Target, 10)
+		if err := blockchainSvc.ConfigureReserve(reserve.Token, reserve.Wallet, target, reserve.ThresholdPercent); err != nil {
 			log.Printf("Failed to configure reserve: %v", err)
 			continue
 		}

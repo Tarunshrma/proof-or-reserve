@@ -254,180 +254,146 @@ func checkTxFailureReason(client *ethclient.Client, from common.Address, tx *eth
 	return fmt.Errorf("call to check revert reason failed: %w (raw call output: %s)", callErr, string(res))
 }
 
-// IsReserveWallet is a method of blockchainServiceImpl.
+// IsReserveWallet checks if a wallet is configured as a reserve for a token
 func (s *blockchainServiceImpl) IsReserveWallet(token, wallet string) (bool, error) {
-	log.Printf("IsReserveWallet called with token: %s, wallet: %s", token, wallet)
-
 	ctx, cancel := context.WithTimeout(context.Background(), s.defaultTimeout)
 	defer cancel()
 
-	tokenAddr := common.HexToAddress(token)
-	walletAddr := common.HexToAddress(wallet)
-	log.Printf("Converted addresses - token: %s, wallet: %s", tokenAddr.Hex(), walletAddr.Hex())
-
-	// Pack the parameters for the mapping getter
-	log.Printf("Packing data for isReserveWallet call...")
-	data, err := s.contractABI.Pack("isReserveWallet", tokenAddr, walletAddr)
+	// Get the reserve config from the contract
+	data, err := s.contractABI.Pack("reserveConfigs", common.HexToAddress(token), common.HexToAddress(wallet))
 	if err != nil {
-		log.Printf("Error packing data: %v", err)
-		return false, fmt.Errorf("failed to pack data for isReserveWallet: %v", err)
+		return false, fmt.Errorf("failed to pack data for reserveConfigs: %v", err)
 	}
-	log.Printf("Data packed successfully: %x", data)
 
 	msg := ethereum.CallMsg{
 		To:   &s.contractAddr,
 		Data: data,
 	}
-	log.Printf("Calling contract at address: %s", s.contractAddr.Hex())
 
 	output, err := s.client.CallContract(ctx, msg, nil)
 	if err != nil {
-		log.Printf("Error calling contract: %v", err)
-		return false, fmt.Errorf("failed to call contract for isReserveWallet: %v", err)
+		return false, fmt.Errorf("failed to call contract: %v", err)
 	}
-
 	if len(output) == 0 {
-		log.Printf("Empty response from contract")
-		return false, nil // Not configured
+		// No config exists yet
+		return false, nil
 	}
-	log.Printf("Contract call successful, output length: %d bytes", len(output))
-
-	// The output should be a bool (32 bytes where the last byte is 0 or 1)
-	if len(output) != 32 {
-		log.Printf("Unexpected output length: %d bytes (expected 32)", len(output))
-		return false, fmt.Errorf("unexpected output length from isReserveWallet: got %d bytes, want 32", len(output))
+	type ReserveConfig struct {
+		IsConfigured          bool
+		Target                *big.Int
+		ThresholdPercent      *big.Int
+		LastVerifiedTimestamp *big.Int
 	}
 
-	result := output[31] == 1
-	log.Printf("IsReserveWallet result: %v", result)
-	return result, nil
+	var config ReserveConfig
+	if err := s.contractABI.UnpackIntoInterface(&config, "reserveConfigs", output); err != nil {
+		return false, fmt.Errorf("failed to unpack result: %v", err)
+	}
+
+	return config.IsConfigured, nil
 }
 
-// GetReserveDetails is a method of blockchainServiceImpl.
+// GetReserveDetails fetches comprehensive details about a reserve
 func (s *blockchainServiceImpl) GetReserveDetails(token, wallet string) (*types.ReserveDetailsOutput, error) {
-	log.Printf("GetReserveDetails called with token: %s, wallet: %s", token, wallet)
-
 	ctx, cancel := context.WithTimeout(context.Background(), s.defaultTimeout)
 	defer cancel()
 
-	tokenAddr := common.HexToAddress(token)
-	walletAddr := common.HexToAddress(wallet)
-	log.Printf("Converted addresses - token: %s, wallet: %s", tokenAddr.Hex(), walletAddr.Hex())
-
-	// First check if this is a valid reserve wallet
-	log.Printf("Checking if wallet is configured as reserve...")
-	isReserve, err := s.IsReserveWallet(token, wallet)
+	data, err := s.contractABI.Pack("getReserveDetails", common.HexToAddress(token), common.HexToAddress(wallet))
 	if err != nil {
-		log.Printf("Error checking reserve status: %v", err)
-		return nil, fmt.Errorf("failed to check reserve status: %v", err)
+		return nil, fmt.Errorf("failed to pack data: %v", err)
 	}
-	log.Printf("IsReserveWallet result: %v", isReserve)
-
-	if !isReserve {
-		log.Printf("Wallet is not configured as a reserve")
-		return nil, fmt.Errorf("wallet is not configured as a reserve")
-	}
-
-	log.Printf("Packing data for getReserveDetails call...")
-	data, err := s.contractABI.Pack("getReserveDetails", tokenAddr, walletAddr)
-	if err != nil {
-		log.Printf("Error packing data: %v", err)
-		return nil, fmt.Errorf("failed to pack data for getReserveDetails: %v", err)
-	}
-	log.Printf("Data packed successfully: %x", data)
 
 	msg := ethereum.CallMsg{
 		To:   &s.contractAddr,
 		Data: data,
 	}
-	log.Printf("Calling contract at address: %s", s.contractAddr.Hex())
 
 	output, err := s.client.CallContract(ctx, msg, nil)
 	if err != nil {
-		if strings.Contains(err.Error(), "execution reverted") {
-			log.Printf("Contract execution reverted: %v", err)
-			return nil, fmt.Errorf("contract execution reverted: wallet may not be configured")
-		}
-		log.Printf("Error calling contract: %v", err)
-		return nil, fmt.Errorf("failed to call contract for getReserveDetails: %v", err)
+		return nil, fmt.Errorf("failed to call contract: %v", err)
 	}
 
-	if len(output) == 0 {
-		log.Printf("Empty response from contract")
-		return nil, fmt.Errorf("empty response from contract")
-	}
-	log.Printf("Contract call successful, output length: %d bytes", len(output))
-
-	// Define the struct to match the contract's ReserveDetails struct
-	type ReserveDetailsResult struct {
-		IsConfigured bool     `json:"isConfigured"`
-		Name         string   `json:"name"`
-		Symbol       string   `json:"symbol"`
-		Balance      *big.Int `json:"balance"`
-		LastVerified *big.Int `json:"lastVerified"`
-	}
-
-	// Unpack into a slice since the contract returns a tuple
-	log.Printf("Unpacking contract response...")
-	v, err := s.contractABI.Methods["getReserveDetails"].Outputs.Unpack(output)
+	// Get the reserve config to include target and threshold
+	configData, err := s.contractABI.Pack("reserveConfigs", common.HexToAddress(token), common.HexToAddress(wallet))
 	if err != nil {
-		log.Printf("Error unpacking response: %v", err)
-		return nil, fmt.Errorf("failed to unpack getReserveDetails result: %v", err)
-	}
-	log.Printf("Response unpacked successfully, got %d values", len(v))
-
-	// The first element should be our struct
-	if len(v) == 0 {
-		log.Printf("No values returned from getReserveDetails")
-		return nil, fmt.Errorf("no values returned from getReserveDetails")
+		return nil, fmt.Errorf("failed to pack data for reserveConfigs: %v", err)
 	}
 
-	// Convert the tuple to our struct
-	log.Printf("Converting response to struct...")
-	details, ok := v[0].(ReserveDetailsResult)
-	if !ok {
-		log.Printf("Failed to convert response to struct. Type: %T", v[0])
-		// Try to convert using reflection as a fallback
-		log.Printf("Attempting to convert using reflection...")
-		result := ReserveDetailsResult{}
-		val := reflect.ValueOf(v[0])
-		if val.Kind() == reflect.Struct {
-			result.IsConfigured = val.FieldByName("IsConfigured").Bool()
-			result.Name = val.FieldByName("Name").String()
-			result.Symbol = val.FieldByName("Symbol").String()
-			result.Balance = val.FieldByName("Balance").Interface().(*big.Int)
-			result.LastVerified = val.FieldByName("LastVerified").Interface().(*big.Int)
-			details = result
-		} else {
-			return nil, fmt.Errorf("failed to convert getReserveDetails result to struct")
+	configMsg := ethereum.CallMsg{
+		To:   &s.contractAddr,
+		Data: configData,
+	}
+
+	configOutput, err := s.client.CallContract(ctx, configMsg, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to call contract for config: %v", err)
+	}
+
+	type ReserveConfig struct {
+		IsConfigured          bool
+		Target                *big.Int
+		ThresholdPercent      *big.Int
+		LastVerifiedTimestamp *big.Int
+	}
+
+	var config ReserveConfig
+	if err := s.contractABI.UnpackIntoInterface(&config, "reserveConfigs", configOutput); err != nil {
+		return nil, fmt.Errorf("failed to unpack config result: %v", err)
+	}
+
+	// Unpack the details result (Solidity returns a tuple as a single []interface{} in Go)
+	type ReserveDetailsResult struct {
+		IsConfigured     bool
+		Name             string
+		Symbol           string
+		Balance          *big.Int
+		LastVerified     *big.Int
+		Target           *big.Int
+		ThresholdPercent *big.Int
+	}
+
+	// Use Unpack to get a []interface{} for the tuple
+	unpacked, err := s.contractABI.Unpack("getReserveDetails", output)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unpack details result: %v", err)
+	}
+	if len(unpacked) == 0 {
+		return nil, fmt.Errorf("no data returned from getReserveDetails")
+	}
+
+	var details ReserveDetailsResult
+	if tuple, ok := unpacked[0].([]interface{}); ok && len(tuple) == 7 {
+		details = ReserveDetailsResult{
+			IsConfigured:     tuple[0].(bool),
+			Name:             tuple[1].(string),
+			Symbol:           tuple[2].(string),
+			Balance:          tuple[3].(*big.Int),
+			LastVerified:     tuple[4].(*big.Int),
+			Target:           tuple[5].(*big.Int),
+			ThresholdPercent: tuple[6].(*big.Int),
+		}
+	} else {
+		log.Printf("[DEBUG] getReserveDetails: unpacked[0] type: %T, value: %+v", unpacked[0], unpacked[0])
+		v := reflect.ValueOf(unpacked[0])
+		details = ReserveDetailsResult{
+			IsConfigured:     v.FieldByName("IsConfigured").Bool(),
+			Name:             v.FieldByName("Name").String(),
+			Symbol:           v.FieldByName("Symbol").String(),
+			Balance:          v.FieldByName("Balance").Interface().(*big.Int),
+			LastVerified:     v.FieldByName("LastVerified").Interface().(*big.Int),
+			Target:           v.FieldByName("Target").Interface().(*big.Int),
+			ThresholdPercent: v.FieldByName("ThresholdPercent").Interface().(*big.Int),
 		}
 	}
-	log.Printf("Response converted to struct successfully")
-
-	// Convert big.Int values to strings
-	var balanceStr string
-	if details.Balance != nil {
-		balanceStr = details.Balance.String()
-	} else {
-		balanceStr = "0"
-	}
-
-	var lastVerifiedStr string
-	if details.LastVerified != nil {
-		lastVerifiedStr = details.LastVerified.String()
-	} else {
-		lastVerifiedStr = "0"
-	}
-
-	log.Printf("Values extracted successfully - isConfigured: %v, name: %s, symbol: %s, balance: %s, lastVerified: %s",
-		details.IsConfigured, details.Name, details.Symbol, balanceStr, lastVerifiedStr)
 
 	return &types.ReserveDetailsOutput{
-		IsConfigured: details.IsConfigured,
-		Name:         details.Name,
-		Symbol:       details.Symbol,
-		Balance:      balanceStr,
-		LastVerified: lastVerifiedStr,
+		IsConfigured:     details.IsConfigured,
+		Name:             details.Name,
+		Symbol:           details.Symbol,
+		Balance:          details.Balance.String(),
+		LastVerified:     details.LastVerified.String(),
+		Target:           details.Target.String(),
+		ThresholdPercent: int(details.ThresholdPercent.Int64()),
 	}, nil
 }
 
@@ -556,7 +522,7 @@ func (s *blockchainServiceImpl) VerifyProof(token, wallet string, validUntil uin
 }
 
 // ConfigureReserve configures a wallet as a reserve for a token
-func (s *blockchainServiceImpl) ConfigureReserve(token, wallet string) error {
+func (s *blockchainServiceImpl) ConfigureReserve(token, wallet string, target *big.Int, thresholdPercent int) error {
 	if s.privateKeyString == "" {
 		return fmt.Errorf("private key not set, required for sending transactions")
 	}
@@ -607,7 +573,7 @@ func (s *blockchainServiceImpl) ConfigureReserve(token, wallet string) error {
 	walletAddr := common.HexToAddress(wallet)
 
 	// Pack parameters for configureReserve
-	data, err := s.contractABI.Pack("configureReserve", tokenAddr, walletAddr)
+	data, err := s.contractABI.Pack("configureReserve", tokenAddr, walletAddr, target, big.NewInt(int64(thresholdPercent)))
 	if err != nil {
 		return fmt.Errorf("failed to pack parameters for configureReserve: %v", err)
 	}
@@ -625,17 +591,14 @@ func (s *blockchainServiceImpl) ConfigureReserve(token, wallet string) error {
 		return fmt.Errorf("failed to send transaction: %v", err)
 	}
 
-	// Wait for transaction to be mined
+	// Wait for transaction receipt
 	receipt, err := bind.WaitMined(ctx, s.client, signedTx)
 	if err != nil {
-		return fmt.Errorf("failed to mine transaction: %v", err)
+		return fmt.Errorf("failed to get transaction receipt: %v", err)
 	}
 
-	// Check transaction status
-	if receipt.Status == ethtypes.ReceiptStatusFailed {
-		callErr := checkTxFailureReason(s.client, fromAddress, signedTx, receipt.BlockNumber)
-		log.Printf("On-chain transaction %s failed. Block: %s. Revert Reason: %v", signedTx.Hash().Hex(), receipt.BlockNumber.String(), callErr)
-		return fmt.Errorf("transaction failed on-chain: %v", callErr)
+	if receipt.Status == 0 {
+		return fmt.Errorf("transaction failed")
 	}
 
 	return nil

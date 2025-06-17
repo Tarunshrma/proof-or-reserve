@@ -9,8 +9,10 @@ import (
 
 // ReserveConfig represents a single reserve configuration
 type ReserveConfig struct {
-	Token  string `json:"token"`
-	Wallet string `json:"wallet"`
+	Token            string `json:"token"`
+	Wallet           string `json:"wallet"`
+	Target           string `json:"target"`
+	ThresholdPercent int    `json:"thresholdPercent"`
 }
 
 // ReserveConfigurations represents multiple reserve configurations

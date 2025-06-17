@@ -339,11 +339,13 @@ func (h *Handler) GetLastVerified(c *gin.Context) {
 // This matches the structure that was previously in the frontend's assets.ts
 // and the new reserves_config.json file.
 type AssetConfigJSON struct {
-	ID            string `json:"id"`
-	DisplayName   string `json:"displayName"`
-	TokenAddress  string `json:"tokenAddress"`
-	WalletAddress string `json:"walletAddress"`
-	LogoURL       string `json:"logoUrl,omitempty"`
+	ID               string `json:"id"`
+	DisplayName      string `json:"displayName"`
+	TokenAddress     string `json:"tokenAddress"`
+	WalletAddress    string `json:"walletAddress"`
+	LogoURL          string `json:"logoUrl,omitempty"`
+	Target           string `json:"target"`
+	ThresholdPercent int    `json:"thresholdPercent"`
 }
 
 // GetConfiguredAssets serves the list of statically configured assets from a JSON file.

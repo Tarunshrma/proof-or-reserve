@@ -6,11 +6,13 @@ import (
 
 // ReserveDetailsOutput represents the output from GetReserveDetails
 type ReserveDetailsOutput struct {
-	IsConfigured bool   `json:"isConfigured"`
-	Name         string `json:"name"`
-	Symbol       string `json:"symbol"`
-	Balance      string `json:"balance"`
-	LastVerified string `json:"lastVerified"`
+	IsConfigured     bool   `json:"isConfigured"`
+	Name             string `json:"name"`
+	Symbol           string `json:"symbol"`
+	Balance          string `json:"balance"`
+	LastVerified     string `json:"lastVerified"`
+	Target           string `json:"target"`
+	ThresholdPercent int    `json:"thresholdPercent"`
 }
 
 // BlockchainService defines the interface for blockchain interactions
@@ -37,5 +39,5 @@ type BlockchainService interface {
 	SetPrivateKey(privateKeyHex string) error
 
 	// ConfigureReserve configures a wallet as a reserve for a token
-	ConfigureReserve(token, wallet string) error
+	ConfigureReserve(token, wallet string, target *big.Int, thresholdPercent int) error
 }

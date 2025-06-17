@@ -49,6 +49,8 @@ contract ProofOfReserve {
         string symbol;
         uint256 balance;
         uint256 lastVerified;
+        uint256 target;
+        uint256 thresholdPercent;
     }
 
     // Modifiers
@@ -232,15 +234,15 @@ contract ProofOfReserve {
         string memory tokenSymbol = "";
         uint256 bal = 0;
         uint256 verifiedTime = config.lastVerifiedTimestamp;
+        uint256 targetValue = config.target;
+        uint256 thresholdValue = config.thresholdPercent;
 
         if (configured) {
             if (token == address(0)) {
-                // Handle native chain token (e.g., XDC)
                 tokenName = "XinFin XDC";
                 tokenSymbol = "XDC";
                 bal = wallet.balance;
             } else if (token != address(0)) {
-                // Handle ERC20 token
                 IERC20 tokenContract = IERC20(token);
                 try tokenContract.name() returns (string memory _name) {
                     tokenName = _name;
@@ -260,7 +262,9 @@ contract ProofOfReserve {
             name: tokenName,
             symbol: tokenSymbol,
             balance: bal,
-            lastVerified: verifiedTime
+            lastVerified: verifiedTime,
+            target: targetValue,
+            thresholdPercent: thresholdValue
         });
         return details;
     }

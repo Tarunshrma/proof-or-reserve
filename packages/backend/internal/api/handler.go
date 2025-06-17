@@ -348,6 +348,16 @@ type AssetConfigJSON struct {
 	ThresholdPercent int    `json:"thresholdPercent"`
 }
 
+// Healthz returns 200 OK for health checks
+func (h *Handler) Healthz(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+// Livez returns 200 OK for liveness checks
+func (h *Handler) Livez(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{"status": "alive"})
+}
+
 // GetConfiguredAssets serves the list of statically configured assets from a JSON file.
 func (h *Handler) GetConfiguredAssets(c *gin.Context) {
 	filePath := h.config.AssetsConfigPath

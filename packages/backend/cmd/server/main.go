@@ -96,6 +96,9 @@ func main() {
 	// r.POST("/verifySignature", handler.VerifySignature) // Superseded by /initiate-onchain-verification
 	// r.GET("/lastVerified/:token/:wallet", handler.GetLastVerified) // Covered by /reserve-details
 
+	r.GET("/healthz", handler.Healthz)
+	r.GET("/livez", handler.Livez)
+
 	// Start server
 	log.Printf("Starting server on %s", cfg.ListenAddr)
 	if err := r.Run(cfg.ListenAddr); err != nil {
